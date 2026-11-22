@@ -1,9 +1,185 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { api } from './api'
 import { fmtDate, todayISO } from './dates'
 import { useWorkspace } from './workspace'
 
 type Turn = { id: string; question: string; answer?: string; error?: string }
+
+type ProviderInfo = {
+  id: string
+  label: string
+  needsKey: boolean
+  defaultModel: string
+  hint: string
+}
+
+type KeySettings = {
+  source: 'account' | 'server' | null
+  provider: { id: string; label: string; model: string } | null
+  saved: {
+    provider: string
+    model: string
+    baseUrl: string
+    hint: string
+    updatedAt: number
+  } | null
+  providers: ProviderInfo[]
+}
+
+/** A student's own key: saved on the server, never sent back to the browser. */
+function KeyCard() {
+  const [settings, setSettings] = useState<KeySettings | null>(null)
+  const [provider, setProvider] = useState('openrouter')
+  const [apiKey, setApiKey] = useState('')
+  const [model, setModel] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api<KeySettings>('/api/ai/settings')
+      .then((loaded) => {
+        setSettings(loaded)
+        if (loaded.saved) {
+          setProvider(loaded.saved.provider)
+          setModel(loaded.saved.model)
+          setBaseUrl(loaded.saved.baseUrl)
+        }
+      })
+      .catch(() => setSettings(null))
+  }, [])
+
+  const info = settings?.providers.find((item) => item.id === provider)
+  const needsUrl = provider === 'custom' || provider === 'ollama'
+  const keyRequired = info ? info.needsKey : true
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await api<{ ok: boolean }>('/api/ai/settings', {
+        method: 'PUT',
+        body: { provider, apiKey: apiKey || undefined, model, baseUrl },
+      })
+      // The provider is read on every page, so reload once it is saved.
+      window.location.reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save that key.')
+      setBusy(false)
+    }
+  }
+
+  async function remove() {
+    setBusy(true)
+    setError('')
+    try {
+      await api<{ ok: boolean }>('/api/ai/settings', { method: 'DELETE' })
+      window.location.reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not remove that key.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h3>Your own API key</h3>
+        <span className="count">
+          {settings?.source === 'account'
+            ? `Saved ${settings.saved?.hint ?? ''}`.trim()
+            : settings?.source === 'server'
+              ? 'Using the server key'
+              : 'Not connected'}
+        </span>
+      </div>
+      <p className="muted">
+        Add a key from any supported service and the study desk uses it for your
+        questions only. It stays on this server, is never shown again in the
+        browser, and you can remove it whenever you like.
+      </p>
+      <form onSubmit={(event) => void save(event)}>
+        <div className="key-form">
+          <label className="field">
+            <span>Service</span>
+            <select
+              value={provider}
+              onChange={(event) => setProvider(event.target.value)}
+            >
+              {(settings?.providers ?? []).map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {keyRequired ? (
+            <label className="field">
+              <span>API key</span>
+              <input
+                type="password"
+                autoComplete="off"
+                value={apiKey}
+                maxLength={400}
+                placeholder={info?.hint ? `from ${info.hint}` : 'Paste your key'}
+                onChange={(event) => setApiKey(event.target.value)}
+              />
+            </label>
+          ) : null}
+          {needsUrl ? (
+            <label className="field">
+              <span>Base URL{provider === 'ollama' ? ' (optional)' : ''}</span>
+              <input
+                value={baseUrl}
+                maxLength={200}
+                placeholder={
+                  provider === 'ollama'
+                    ? 'http://127.0.0.1:11434/v1'
+                    : 'https://your-service/v1'
+                }
+                onChange={(event) => setBaseUrl(event.target.value)}
+              />
+            </label>
+          ) : null}
+          <label className="field">
+            <span>Model (optional)</span>
+            <input
+              value={model}
+              maxLength={80}
+              placeholder={info?.defaultModel || 'Service default'}
+              onChange={(event) => setModel(event.target.value)}
+            />
+          </label>
+        </div>
+        <div className="form-actions">
+          <button
+            className="btn primary"
+            disabled={busy || (keyRequired && !apiKey.trim())}
+          >
+            {busy ? 'Saving…' : 'Save key'}
+          </button>
+          {settings?.saved ? (
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={busy}
+              onClick={() => void remove()}
+            >
+              Remove saved key
+            </button>
+          ) : null}
+        </div>
+        {error ? <p className="error">{error}</p> : null}
+      </form>
+      <p className="fineprint">
+        Keys are kept in this deployment&rsquo;s database, so use a key you can
+        rotate. Your key is only used for your own questions and is limited to
+        the same daily allowance as everyone else.
+      </p>
+    </section>
+  )
+}
 
 function inline(text: string, keyPrefix: string): ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) =>
@@ -167,8 +343,9 @@ export default function StudyDesk() {
         <section className="card ai-setup">
           <h3>The AI study desk is not connected yet</h3>
           <p className="muted">
-            Everything else in Studydeck works without it. Set one key in the
-            server environment or <strong>Sites → Secrets</strong>, then restart:
+            Everything else in Studydeck works without it. Paste a key in{' '}
+            <strong>Your own API key</strong> below and it works immediately, or
+            set one on the server:
           </p>
           <ul className="setup-steps">
             <li>
@@ -287,6 +464,8 @@ export default function StudyDesk() {
           something is missing, the assistant says so instead of guessing.
         </p>
       </section>
+
+      <KeyCard />
     </div>
   )
 }

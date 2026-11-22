@@ -63,6 +63,14 @@ const schema = [
     count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (owner_sub, day)
   )`,
+  `CREATE TABLE IF NOT EXISTS ai_keys (
+    owner_sub TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    base_url TEXT NOT NULL DEFAULT '',
+    api_key TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS syllabus_progress (
     owner_sub TEXT NOT NULL,
     subject_id TEXT NOT NULL,

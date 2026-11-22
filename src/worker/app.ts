@@ -14,16 +14,16 @@ import type {
 } from '../shared/types'
 import {
   AI_DAILY_LIMIT,
-  aiConfigured,
   askNotes,
   consumeAi,
   summariseNotes,
   usedAi,
   type NoteSource,
 } from './ai'
+import { clearAiKey, effectiveProvider, readAiKey, saveAiKey } from './aiSettings'
 import { appOrigin, currentUser, isLocalPreview, type Env } from './auth'
 import { calendarFileName, timetableFile } from './ics'
-import { AiError, resolveProvider } from './providers'
+import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
   ensureSchema,
@@ -304,7 +304,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         .bind(owner)
         .first<ProfileRow>(),
     ])
-    const provider = resolveProvider(env)
+    const { provider } = await effectiveProvider(db, env, owner)
     return {
       subjects: subjects.results.map(mapSubject),
       entries: entries.results.map(mapEntry),
@@ -387,6 +387,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
       db.prepare('DELETE FROM subjects WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM profiles WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM ai_usage WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM ai_keys WHERE owner_sub = ?').bind(owner),
     ])
     return c.json(await workspace(db, c.env, owner))
   })
@@ -962,14 +963,94 @@ export function createApp(authenticate: Authenticate = currentUser) {
     )
   }
 
+  /** Which service answers, and where its key comes from. Never the key. */
+  app.get('/api/ai/settings', async (c) => {
+    const db = c.get('db')
+    const owner = c.get('user').sub
+    const stored = await readAiKey(db, owner)
+    const { provider, source } = await effectiveProvider(db, c.env, owner)
+    return c.json({
+      source,
+      provider: provider
+        ? { id: provider.id, label: provider.label, model: provider.model }
+        : null,
+      saved: stored
+        ? {
+            provider: stored.provider,
+            model: stored.model,
+            baseUrl: stored.baseUrl,
+            // Enough to recognise the key, never enough to use it.
+            hint: stored.apiKey ? `••••${stored.apiKey.slice(-4)}` : '',
+            updatedAt: stored.updatedAt,
+          }
+        : null,
+      providers: PROVIDERS,
+    })
+  })
+
+  /**
+   * Saves a key the student supplies themselves. It is used for their requests
+   * only, and the key is never returned by any endpoint.
+   */
+  app.put('/api/ai/settings', async (c) => {
+    const body = await readBody(c.req.raw)
+    if (!body) return c.json({ error: 'That key could not be saved.' }, 400)
+    const provider = PROVIDER_IDS.find((id) => id === body.provider)
+    if (!provider)
+      return c.json({ error: 'Pick a service from the list.' }, 400)
+    const info = PROVIDERS.find((item) => item.id === provider)
+    if (!info) return c.json({ error: 'Pick a service from the list.' }, 400)
+
+    const apiKey = clean(body.apiKey, 400)
+    const model = clean(body.model, 80)
+    const baseUrl = clean(body.baseUrl, 200)
+    // Keys are opaque tokens: printable, no spaces, and long enough to be real.
+    const wellFormed = /^[\x21-\x7e]{8,400}$/.test(apiKey)
+    if (info.needsKey && !wellFormed)
+      return c.json(
+        { error: 'Paste the API key exactly as the service shows it.' },
+        400,
+      )
+    if (!info.needsKey && apiKey && !wellFormed)
+      return c.json({ error: 'That API key does not look right.' }, 400)
+    if (baseUrl && !/^https?:\/\/[^\s]+$/.test(baseUrl))
+      return c.json({ error: 'A base URL must start with http:// or https://.' }, 400)
+    if (provider === 'custom' && (!baseUrl || !model))
+      return c.json(
+        { error: 'A custom service needs a base URL and a model name.' },
+        400,
+      )
+    if (
+      !providerFromSettings({ provider, apiKey: apiKey || undefined, model, baseUrl })
+    )
+      return c.json(
+        { error: 'That provider, key and URL combination cannot work.' },
+        400,
+      )
+
+    await saveAiKey(c.get('db'), c.get('user').sub, {
+      provider,
+      model,
+      baseUrl,
+      apiKey,
+    })
+    return c.json({ ok: true })
+  })
+
+  app.delete('/api/ai/settings', async (c) => {
+    await clearAiKey(c.get('db'), c.get('user').sub)
+    return c.json({ ok: true })
+  })
+
   const AI_SETUP =
-    'The AI study desk is not connected yet. Set OPENROUTER_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY on the server (or run Ollama), then restart. Everything else works without it.'
+    'The AI study desk is not connected yet. Paste an API key in the study desk, or set one on the server. Everything else works without it.'
   const AI_FAILED = 'The AI service did not answer. Please try again in a moment.'
 
   app.post('/api/ai/summarize', async (c) => {
-    if (!aiConfigured(c.env)) return c.json({ error: AI_SETUP }, 503)
     const db = c.get('db')
     const owner = c.get('user').sub
+    const { provider } = await effectiveProvider(db, c.env, owner)
+    if (!provider) return c.json({ error: AI_SETUP }, 503)
     const body = await readBody(c.req.raw)
     const sources = await sourceNotes(db, owner, body)
     if (!sources.length)
@@ -985,7 +1066,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
       )
     try {
       const summary = await summariseNotes(
-        c.env,
+        provider,
         sources,
         await syllabusContext(db, owner),
       )
@@ -999,13 +1080,14 @@ export function createApp(authenticate: Authenticate = currentUser) {
   })
 
   app.post('/api/ai/ask', async (c) => {
-    if (!aiConfigured(c.env)) return c.json({ error: AI_SETUP }, 503)
     const body = await readBody(c.req.raw)
     const question = clean(body?.question, 500)
     if (!question)
       return c.json({ error: 'Ask a question of up to 500 characters.' }, 400)
     const db = c.get('db')
     const owner = c.get('user').sub
+    const { provider } = await effectiveProvider(db, c.env, owner)
+    if (!provider) return c.json({ error: AI_SETUP }, 503)
     const sources = await sourceNotes(db, owner, body)
     if (!sources.length)
       return c.json(
@@ -1020,7 +1102,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
       )
     try {
       const answer = await askNotes(
-        c.env,
+        provider,
         question,
         sources,
         await syllabusContext(db, owner),

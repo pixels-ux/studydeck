@@ -1,15 +1,9 @@
-import type { Env } from './auth'
-import { AiError, resolveProvider } from './providers'
+import { AiError, type Provider } from './providers'
 import type { SqlDatabase } from './sql'
 
 export const AI_DAILY_LIMIT = 40
 
 export type NoteSource = { title: string; body: string }
-
-/** True when a provider and its key (if it needs one) are configured. */
-export function aiConfigured(env: Env): boolean {
-  return resolveProvider(env) !== null
-}
 
 const MAX_SOURCE_CHARS = 14_000
 const MAX_NOTE_CHARS = 2_500
@@ -31,13 +25,10 @@ type Message = { role: 'system' | 'user' | 'assistant'; content: string }
 
 /** Every supported provider speaks the OpenAI chat-completions request shape. */
 async function complete(
-  env: Env,
+  provider: Provider,
   messages: Message[],
   maxTokens: number,
 ): Promise<string> {
-  const provider = resolveProvider(env)
-  if (!provider) throw new AiError('No AI provider is configured.')
-
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...provider.headers,
@@ -111,12 +102,12 @@ const systemPrompt = (context: string): string =>
   context ? `${TUTOR}\n\n${context}` : TUTOR
 
 export function summariseNotes(
-  env: Env,
+  provider: Provider,
   sources: NoteSource[],
   context = '',
 ): Promise<string> {
   return complete(
-    env,
+    provider,
     [
       { role: 'system', content: systemPrompt(context) },
       {
@@ -131,13 +122,13 @@ export function summariseNotes(
 }
 
 export function askNotes(
-  env: Env,
+  provider: Provider,
   question: string,
   sources: NoteSource[],
   context = '',
 ): Promise<string> {
   return complete(
-    env,
+    provider,
     [
       { role: 'system', content: systemPrompt(context) },
       {

@@ -133,6 +133,22 @@ instead of failing against `localhost`. A Cloudflare Worker cannot reach your
 machine, so on Sites use a hosted provider, or a public tunnel URL in
 `AI_BASE_URL`. The Node server prints which provider it found at startup.
 
+### Adding a key in the app
+
+You do not have to touch the server to turn the desk on. Sign in, open **AI
+study desk**, and use **Your own API key** at the bottom of the page: pick a
+service, paste the key, and optionally set a model (plus a base URL for
+`custom` or `ollama`). Save it and the desk starts answering straight away.
+
+- A key belongs to the account that saved it and is used only for that
+  student's questions. Other accounts are unaffected.
+- The key is never returned by any endpoint; the page shows only its last four
+  characters so you can recognise it. It is not included in exported data.
+- A saved key wins over the deployment's environment key. **Remove saved key**
+  falls back to whichever provider the server was configured with.
+- Keys are stored in the deployment's database, so use a key you can rotate and
+  treat database access as key access. `DELETE FROM ai_keys` clears them.
+
 Keys never reach the browser, and every student is capped at 40 AI actions a
 day. Provider errors the student can act on (a refused key, a missing Ollama
 model, a rate limit) are shown as they are; everything else stays generic.

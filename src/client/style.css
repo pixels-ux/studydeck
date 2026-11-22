@@ -2046,3 +2046,11 @@ a.btn {
   align-items: center;
   justify-content: center;
 }
+
+/* The in-app key form sits in a row like the timetable builder. */
+.key-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}

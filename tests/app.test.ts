@@ -146,6 +146,9 @@ test('signed-out requests are refused while public pages and health stay open', 
     ['/api/export', 'GET'],
     ['/api/timetable.ics', 'GET'],
     ['/api/workspace', 'DELETE'],
+    ['/api/ai/settings', 'GET'],
+    ['/api/ai/settings', 'PUT'],
+    ['/api/ai/settings', 'DELETE'],
   ] as const) {
     const response = await call(path, undefined, method)
     expect(response.status).toBe(401)
@@ -433,7 +436,9 @@ test('foreign origins are refused and the AI desk reports its missing key', asyn
     question: 'What is photosynthesis?',
   })
   expect(ask.status).toBe(503)
-  expect(((await ask.json()) as { error: string }).error).toContain('OPENAI_API_KEY')
+  expect(((await ask.json()) as { error: string }).error).toContain(
+    'Paste an API key',
+  )
   expect((await call('/api/ai/summarize', 'alice', 'POST', {})).status).toBe(503)
 })
 
@@ -550,6 +555,63 @@ test('a student can export their data, take the timetable to a calendar and rese
   expect(after.subjects).toHaveLength(0)
   expect(after.entries).toHaveLength(0)
   expect((await data('alice')).subjects.length).toBeGreaterThan(0)
+})
+
+test('a student can connect their own AI key and it never comes back out', async () => {
+  const secret = 'sk-or-account-123456'
+  const saved = await call('/api/ai/settings', 'erin', 'PUT', {
+    provider: 'openrouter',
+    apiKey: secret,
+  })
+  expect(saved.status).toBe(200)
+
+  const settings = (await (await call('/api/ai/settings', 'erin')).json()) as {
+    source: string
+    provider: { id: string; model: string } | null
+    saved: { hint: string; provider: string } | null
+  }
+  expect(settings.source).toBe('account')
+  expect(settings.provider?.id).toBe('openrouter')
+  expect(settings.saved?.provider).toBe('openrouter')
+  // The key itself is never returned, only a recognisable suffix.
+  expect(JSON.stringify(settings)).not.toContain(secret)
+  expect(settings.saved?.hint).toContain('3456')
+
+  // The key turns the desk on for its owner and nobody else.
+  const erin = await data('erin')
+  expect(erin.ai.enabled).toBe(true)
+  expect(erin.ai.provider).toBe('OpenRouter')
+  expect((await data('frank')).ai.enabled).toBe(false)
+  expect(
+    await (await call('/api/export', 'erin')).text(),
+  ).not.toContain(secret)
+
+  // Removing the key turns the desk off again.
+  expect((await call('/api/ai/settings', 'erin', 'DELETE')).status).toBe(200)
+  expect((await (await call('/api/ai/settings', 'erin')).json()) as { source: unknown }).toMatchObject({ source: null })
+  expect((await data('erin')).ai.enabled).toBe(false)
+
+  for (const body of [
+    { provider: 'nope', apiKey: secret },
+    { provider: 'openrouter' },
+    { provider: 'openrouter', apiKey: 'short' },
+    { provider: 'custom', apiKey: secret, baseUrl: 'not-a-url', model: 'm' },
+    { provider: 'custom', apiKey: secret, model: '' },
+  ]) {
+    expect((await call('/api/ai/settings', 'erin', 'PUT', body)).status).toBe(400)
+  }
+
+  // Ollama needs no key, only a base URL pointing at the server.
+  expect(
+    (
+      await call('/api/ai/settings', 'frank', 'PUT', {
+        provider: 'ollama',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        model: 'llama3.2',
+      })
+    ).status,
+  ).toBe(200)
+  expect((await data('frank')).ai.provider).toBe('Ollama')
 })
 
 test('the wizard payload saves in one call because every entry uses a subject key', async () => {

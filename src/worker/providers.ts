@@ -207,6 +207,60 @@ function custom(env: Env): Provider | null {
   }
 }
 
+/** The services the in-app key form offers, in the order it shows them. */
+export const PROVIDERS: {
+  id: ProviderId
+  label: string
+  needsKey: boolean
+  defaultModel: string
+  hint: string
+}[] = [
+  { id: 'openrouter', label: 'OpenRouter', needsKey: true, defaultModel: 'openrouter/auto', hint: 'openrouter.ai/keys' },
+  { id: 'gemini', label: 'Google Gemini', needsKey: true, defaultModel: 'gemini-2.5-flash', hint: 'aistudio.google.com/apikey' },
+  { id: 'groq', label: 'Groq', needsKey: true, defaultModel: 'llama-3.3-70b-versatile', hint: 'console.groq.com/keys' },
+  { id: 'openai', label: 'OpenAI', needsKey: true, defaultModel: 'gpt-4o-mini', hint: 'platform.openai.com/api-keys' },
+  { id: 'mistral', label: 'Mistral', needsKey: true, defaultModel: 'mistral-small-latest', hint: 'console.mistral.ai/api-keys' },
+  { id: 'deepseek', label: 'DeepSeek', needsKey: true, defaultModel: 'deepseek-chat', hint: 'platform.deepseek.com/api_keys' },
+  { id: 'together', label: 'Together', needsKey: true, defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', hint: 'api.together.ai/settings/api-keys' },
+  { id: 'freebuff', label: 'Freebuff', needsKey: true, defaultModel: FREEBUFF_MODELS[0], hint: 'freebuff.com/account/api' },
+  { id: 'custom', label: 'Other (OpenAI-compatible)', needsKey: false, defaultModel: '', hint: 'needs a base URL and a model' },
+  { id: 'ollama', label: 'Ollama on this server', needsKey: false, defaultModel: 'llama3.2', hint: 'no key needed' },
+]
+
+/** Which variable a saved key would have come from in the environment. */
+const KEY_VARS: Record<ProviderId, string> = {
+  freebuff: 'OPENAI_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  groq: 'GROQ_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+  together: 'TOGETHER_API_KEY',
+  custom: 'AI_API_KEY',
+  ollama: '',
+}
+
+export type SavedSettings = {
+  provider: ProviderId
+  apiKey?: string
+  model?: string
+  baseUrl?: string
+}
+
+/** A provider built from the settings a student saved in the app. */
+export function providerFromSettings(settings: SavedSettings): Provider | null {
+  const env = {
+    AI_PROVIDER: settings.provider,
+    AI_MODEL: settings.model ?? '',
+    AI_BASE_URL: settings.baseUrl ?? '',
+  } as Env
+  const keyVar = KEY_VARS[settings.provider]
+  if (keyVar && settings.apiKey)
+    (env as unknown as Record<string, string>)[keyVar] = settings.apiKey
+  return BUILDERS[settings.provider](env)
+}
+
 const BUILDERS: Record<ProviderId, (env: Env) => Provider | null> = {
   freebuff,
   openrouter,

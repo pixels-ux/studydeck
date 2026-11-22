@@ -59,6 +59,38 @@ Sites' managed realtime tools instead of adding a separate backend. For SSR
 requirements, adapt the same project with Sites' supported Next/OpenNext path
 rather than asking the user to select another template.
 
+## Run on a plain Node host
+
+The same app also runs on any host that can run `node` (a VPS, Render, Railway,
+Fly, a Docker image). No Cloudflare account is involved: the worker is reached
+through `src/node/server.ts`, static files come from `dist/client`, and data is
+kept in a SQLite file through `src/node/sqlite.ts`, which implements the same
+`prepare/bind/first/all/run/batch` surface D1 exposes. The Worker build and
+`deploy.json` are unchanged, so Sites keeps working from the same source.
+
+```sh
+bun install            # or npm install
+bun run build:node     # dist/client + dist/node/server.js
+DATABASE_PATH=data/studydeck.db PORT=3000 bun start   # or: node dist/node/server.js
+```
+
+Environment:
+
+- `DATABASE_PATH` (default `data/studydeck.db`): the SQLite file; its directory
+  is created automatically. Point it at a persistent disk, not an ephemeral one.
+- `PORT` / `HOST` (default `3000` / `0.0.0.0`).
+- `OPENAI_API_KEY` (+ optional `OPENAI_BASE_URL`, `AI_MODEL`) enables the AI
+  study desk; without it everything else works and the desk shows a setup card.
+- `FREEBUFF_CLIENT_ID`, `FREEBUFF_ISSUER`, `APP_ORIGIN` enable Sign in with
+  Freebuff. `APP_ORIGIN` must be the public origin including scheme. A new
+  domain also needs one registration run by the owner:
+  `npx @freebuff/auth register --project <slug> --name "Studydeck" --environment production --redirect-uri https://<origin>/auth/freebuff/callback`.
+
+With no auth configuration the app still serves, but only a loopback origin
+(`http://127.0.0.1:<port>`) gets the single local preview identity. A public
+origin without auth configuration shows the sign-in screen and refuses API
+writes, by design.
+
 ## Verify before publishing
 
 `bun test` uses a real local D1 database through Miniflare to verify CRUD,

@@ -5,6 +5,11 @@ export type ProviderId =
   | 'openrouter'
   | 'gemini'
   | 'openai'
+  | 'groq'
+  | 'mistral'
+  | 'deepseek'
+  | 'together'
+  | 'custom'
   | 'ollama'
 
 export type Provider = {
@@ -33,6 +38,11 @@ export const PROVIDER_IDS: ProviderId[] = [
   'openrouter',
   'gemini',
   'openai',
+  'groq',
+  'mistral',
+  'deepseek',
+  'together',
+  'custom',
   'ollama',
 ]
 
@@ -134,16 +144,92 @@ function ollama(env: Env): Provider | null {
   }
 }
 
+function groq(env: Env): Provider | null {
+  if (!env.GROQ_API_KEY) return null
+  return {
+    id: 'groq',
+    label: 'Groq',
+    baseUrl: trim(env.AI_BASE_URL || 'https://api.groq.com/openai/v1'),
+    apiKey: env.GROQ_API_KEY,
+    model: freeModel(env, 'llama-3.3-70b-versatile'),
+    headers: {},
+  }
+}
+
+function mistral(env: Env): Provider | null {
+  if (!env.MISTRAL_API_KEY) return null
+  return {
+    id: 'mistral',
+    label: 'Mistral',
+    baseUrl: trim(env.AI_BASE_URL || 'https://api.mistral.ai/v1'),
+    apiKey: env.MISTRAL_API_KEY,
+    model: freeModel(env, 'mistral-small-latest'),
+    headers: {},
+  }
+}
+
+function deepseek(env: Env): Provider | null {
+  if (!env.DEEPSEEK_API_KEY) return null
+  return {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    baseUrl: trim(env.AI_BASE_URL || 'https://api.deepseek.com/v1'),
+    apiKey: env.DEEPSEEK_API_KEY,
+    model: freeModel(env, 'deepseek-chat'),
+    headers: {},
+  }
+}
+
+function together(env: Env): Provider | null {
+  if (!env.TOGETHER_API_KEY) return null
+  return {
+    id: 'together',
+    label: 'Together',
+    baseUrl: trim(env.AI_BASE_URL || 'https://api.together.xyz/v1'),
+    apiKey: env.TOGETHER_API_KEY,
+    model: freeModel(env, 'meta-llama/Llama-3.3-70B-Instruct-Turbo'),
+    headers: {},
+  }
+}
+
+/** Any other OpenAI-compatible service: a URL, a model, and usually a key. */
+function custom(env: Env): Provider | null {
+  const baseUrl = (env.AI_BASE_URL ?? '').trim()
+  const model = (env.AI_MODEL ?? '').trim()
+  if (!/^https?:\/\//.test(baseUrl) || !MODEL_PATTERN.test(model)) return null
+  return {
+    id: 'custom',
+    label: 'Your AI service',
+    baseUrl: trim(baseUrl),
+    apiKey: env.AI_API_KEY || undefined,
+    model,
+    headers: {},
+  }
+}
+
 const BUILDERS: Record<ProviderId, (env: Env) => Provider | null> = {
   freebuff,
   openrouter,
   gemini,
   openai,
+  groq,
+  mistral,
+  deepseek,
+  together,
+  custom,
   ollama,
 }
 
 /** With no AI_PROVIDER, the first configured key wins. */
-const AUTO_ORDER: ProviderId[] = ['openrouter', 'gemini', 'freebuff']
+const AUTO_ORDER: ProviderId[] = [
+  'openrouter',
+  'groq',
+  'gemini',
+  'deepseek',
+  'mistral',
+  'together',
+  'freebuff',
+]
 
 /**
  * The service the study desk talks to, or null when nothing is configured.

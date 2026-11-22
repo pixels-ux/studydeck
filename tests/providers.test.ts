@@ -73,6 +73,48 @@ test('Ollama is local, keyless and only used when pointed at', () => {
   expect(remote.baseUrl).toBe('http://gpu-box:11434/v1')
 })
 
+test('the other hosted services resolve from their own keys', () => {
+  expect(resolveProvider(env({ GROQ_API_KEY: 'g' }))).toMatchObject({
+    id: 'groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    model: 'llama-3.3-70b-versatile',
+  })
+  expect(resolveProvider(env({ MISTRAL_API_KEY: 'm' }))).toMatchObject({
+    id: 'mistral',
+    model: 'mistral-small-latest',
+  })
+  expect(resolveProvider(env({ DEEPSEEK_API_KEY: 'd' }))).toMatchObject({
+    id: 'deepseek',
+    model: 'deepseek-chat',
+  })
+  expect(resolveProvider(env({ TOGETHER_API_KEY: 't' }))).toMatchObject({
+    id: 'together',
+    baseUrl: 'https://api.together.xyz/v1',
+  })
+})
+
+test('a custom endpoint needs a URL and a model, and is never guessed', () => {
+  expect(
+    resolveProvider(env({ AI_PROVIDER: 'custom', AI_BASE_URL: 'https://ai.example/v1' })),
+  ).toBeNull()
+  // A stray base URL alone does not turn the desk on.
+  expect(
+    resolveProvider(env({ AI_BASE_URL: 'https://ai.example/v1', AI_MODEL: 'm' })),
+  ).toBeNull()
+
+  const custom = resolveProvider(
+    env({
+      AI_PROVIDER: 'custom',
+      AI_BASE_URL: 'https://ai.example/v1/',
+      AI_MODEL: 'my-model',
+      AI_API_KEY: 'secret',
+    }),
+  )!
+  expect(custom.baseUrl).toBe('https://ai.example/v1')
+  expect(custom.model).toBe('my-model')
+  expect(custom.apiKey).toBe('secret')
+})
+
 test('AI_MODEL and AI_BASE_URL apply where the service allows them', () => {
   expect(
     resolveProvider(

@@ -24,6 +24,10 @@ only you can see.
   today and next week.
 - **Syllabus** — NCERT chapters ticked off per subject.
 - **Notes** — private notes per subject.
+- **Your data** — download subjects, timetable, tasks, notes and syllabus as one
+  JSON file, or delete the whole workspace from the server.
+- **Calendar** — export the week and the revision plan as an `.ics` file for
+  Google Calendar, Apple Calendar or Outlook.
 - **AI study desk** — summarise your notes into revision points, or ask a
   question answered only from your own notes, with the note it used. It knows
   your class and chapters. Capped at 40 actions per student per day.
@@ -66,6 +70,11 @@ Everything is optional locally; see `.env.example`.
 | `AI_PROVIDER` | Which service answers: `freebuff`, `openrouter`, `gemini`, `openai` or `ollama`. When omitted it is detected from the keys you set. |
 | `OPENROUTER_API_KEY` | OpenRouter key. Model defaults to `openrouter/auto`. |
 | `GEMINI_API_KEY`, `GOOGLE_API_KEY` | Google Gemini key. Model defaults to `gemini-2.5-flash`. |
+| `GROQ_API_KEY` | Groq key. Model defaults to `llama-3.3-70b-versatile`. |
+| `MISTRAL_API_KEY` | Mistral key. Model defaults to `mistral-small-latest`. |
+| `DEEPSEEK_API_KEY` | DeepSeek key. Model defaults to `deepseek-chat`. |
+| `TOGETHER_API_KEY` | Together key. Model defaults to `meta-llama/Llama-3.3-70B-Instruct-Turbo`. |
+| `AI_API_KEY` | Key for a service you point at with `AI_PROVIDER=custom`. |
 | `OPENAI_API_KEY` | A Freebuff key by default; an OpenAI key when `AI_PROVIDER=openai`. Without any key the desk shows a setup card and the rest of the app works. |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Point the desk at a local Ollama. No key needed. |
 | `AI_BASE_URL` | Any other OpenAI-compatible endpoint; beats the built-in URL for the chosen provider. |
@@ -88,15 +97,27 @@ The study desk talks to any service that speaks the OpenAI chat-completions
 API, so one request shape covers all of them:
 
 ```sh
-AI_PROVIDER=openrouter OPENROUTER_API_KEY=...    # https://openrouter.ai/keys
-AI_PROVIDER=gemini     GEMINI_API_KEY=...        # https://aistudio.google.com/apikey
-AI_PROVIDER=openai     OPENAI_API_KEY=...        # https://platform.openai.com/api-keys
-AI_PROVIDER=freebuff   OPENAI_API_KEY=...        # default, spends Freebuff credits
+AI_PROVIDER=openrouter OPENROUTER_API_KEY=...  # https://openrouter.ai/keys
+AI_PROVIDER=gemini     GEMINI_API_KEY=...      # https://aistudio.google.com/apikey
+AI_PROVIDER=groq       GROQ_API_KEY=...        # https://console.groq.com/keys
+AI_PROVIDER=mistral    MISTRAL_API_KEY=...     # https://console.mistral.ai/api-keys
+AI_PROVIDER=deepseek   DEEPSEEK_API_KEY=...    # https://platform.deepseek.com/api_keys
+AI_PROVIDER=together   TOGETHER_API_KEY=...    # https://api.together.ai/settings/api-keys
+AI_PROVIDER=openai     OPENAI_API_KEY=...      # https://platform.openai.com/api-keys
+AI_PROVIDER=freebuff   OPENAI_API_KEY=...      # default, spends Freebuff credits
+```
+
+Anything else that speaks the OpenAI chat-completions API works through
+`custom`:
+
+```sh
+AI_PROVIDER=custom AI_BASE_URL=https://your-service/v1 AI_MODEL=your-model AI_API_KEY=...
 ```
 
 With no `AI_PROVIDER`, the first key that is set wins in the order OpenRouter,
-Gemini, Freebuff. `AI_MODEL` picks a model; each provider has a default, and
-Freebuff keeps a server-side allowlist so the browser can never choose one.
+Groq, Gemini, DeepSeek, Mistral, Together, Freebuff. `AI_MODEL` picks a model;
+each provider has a default, and Freebuff keeps a server-side allowlist so the
+browser can never choose one.
 
 Ollama runs on the machine serving the app and needs no key or account:
 

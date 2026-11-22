@@ -6,3 +6,6 @@ data/
 .env.*
 .dev.vars
 !.env.example
+
+# Local screenshot scratch space, never published
+artifacts/

@@ -1,104 +1,131 @@
-# Web app
+# Studydeck
 
-A small app with accounts and saved data, ready to become your own product.
-The example workspace lets each user create, edit and delete private notes.
+A timetable, work and syllabus organiser for CBSE/NCERT students. Tell it your
+class, your subjects and your test dates; it lays out your week and an exam
+revision plan, then keeps assignments, chapters and notes in one workspace that
+only you can see.
 
-## Start and check
+## What it does
 
-```sh
-bun install
-bun run dev
-bun test
-bun run typecheck
-bun run build
-```
+- **Class setup** — your class, subjects and colours, school hours and period
+  length, test dates, and how many hours you can study. A weekly timetable and
+  an intensive revision plan are generated from that.
+- **Today** — the classes you have, the work that is due and the exams coming up.
+- **Timetable** — your week as a grid with rooms, teachers and subject colours,
+  plus the revision plan. Study sessions never land on a school class, and the
+  nearest exam gets the most time.
+- **Work** — assignments with due dates and priorities, grouped into overdue,
+  today and next week.
+- **Syllabus** — NCERT chapters ticked off per subject.
+- **Notes** — private notes per subject.
+- **AI study desk** — summarise your notes into revision points, or ask a
+  question answered only from your own notes, with the note it used. It knows
+  your class and chapters. Capped at 40 actions per student per day.
 
-Open the URL printed by Vite. The server binds to `0.0.0.0` for Cloud previews
-and runs the Worker with a local D1 database. With no auth configuration on a
-loopback origin, one clearly labelled local preview identity is used. This
-fallback never applies on a hosted origin or to incomplete sign-in config.
+## Stack
 
-## Make it yours
+- React 19 and Vite for the interface (`src/client`).
+- A Hono app for the API (`src/worker/app.ts`), run as a Cloudflare Worker in
+  production and through a small Node HTTP server on a plain host
+  (`src/node/server.ts`).
+- SQL through one small surface, `prepare` / `bind` / `first` / `all` / `run` /
+  `batch` (`src/worker/sql.ts`). Cloudflare D1 satisfies it directly; on Node,
+  `src/node/sqlite.ts` implements it over `node:sqlite`.
+- Sign in with Freebuff for accounts, with every row scoped to the signed-in
+  user's `sub` (`src/worker/auth.ts`, `src/worker/db.ts`).
 
-- `src/client/main.tsx`: the React interface and interactions.
-- `src/client/style.css`: colors, typography and spacing.
-- `src/worker/app.ts`: the private API and authorization.
-- `src/worker/auth.ts`: Sign in with Freebuff and local preview identity.
-- `src/worker/db.ts`: the D1 schema and row mapping.
-- `src/shared/types.ts`: API types shared by browser and server.
-
-Notes are capped at 1000 characters; the workspace lists the newest 100. All
-queries bind parameters and scope ownership by the authenticated user's `sub`.
-Build on this example instead of introducing another database or auth service.
-Add pagination when your product needs longer lists. Schema initialization is
-idempotent; append migrations deliberately as the app grows.
-
-## Publish with Freebuff
-
-When the user requests publishing, use the Publish button, or Sites tools:
-
-1. Create/inspect the site and target preview first.
-2. Enable Sign in with Freebuff using `sites_enable_auth`. For local login
-   testing, supply the dev server's loopback origin and use only the returned
-   development configuration locally. Never invent or reuse a client ID.
-3. Provision Sites database storage as `DB` using `sites_add_storage`.
-4. Build and deploy with `sites_deploy` and `deploy.json`. Sites injects the
-   reserved `FREEBUFF_CLIENT_ID`, `FREEBUFF_ISSUER` and `APP_ORIGIN` bindings.
-   No application secret or separate cloud account is needed.
-
-Read `node_modules/@freebuff/auth/AGENTS.md` before changing sign-in. The SDK
-wraps requests before API/static fallbacks and forwards refreshed session
-cookies. Never derive the canonical origin from a request Host. Private routes
-authenticate every request, key records by `sub`, reject foreign-origin
-mutations and return private/no-store responses. Missing setup is an error,
-never anonymous access to hosted data.
-
-For uploaded files, add Sites' `FILES` storage when needed; this starter has
-no file feature and does not provision a bucket. For live collaboration, use
-Sites' managed realtime tools instead of adding a separate backend. For SSR
-requirements, adapt the same project with Sites' supported Next/OpenNext path
-rather than asking the user to select another template.
-
-## Run on a plain Node host
-
-The same app also runs on any host that can run `node` (a VPS, Render, Railway,
-Fly, a Docker image). No Cloudflare account is involved: the worker is reached
-through `src/node/server.ts`, static files come from `dist/client`, and data is
-kept in a SQLite file through `src/node/sqlite.ts`, which implements the same
-`prepare/bind/first/all/run/batch` surface D1 exposes. The Worker build and
-`deploy.json` are unchanged, so Sites keeps working from the same source.
+## Run it locally
 
 ```sh
-bun install            # or npm install
-bun run build:node     # dist/client + dist/node/server.js
-DATABASE_PATH=data/studydeck.db PORT=3000 bun start   # or: node dist/node/server.js
+bun install          # or npm install
+bun run dev          # Vite dev server, Worker with a local D1 database
 ```
 
-Environment (export the variables, or load an untracked `.env` with
-`node --env-file=.env dist/node/server.js`; Bun loads `.env` on its own):
+Open the URL Vite prints. On a loopback origin with no auth configuration the
+app uses a single, clearly labelled local preview identity, so you can use it
+without signing in. That fallback never applies to a hosted origin.
 
-- `DATABASE_PATH` (default `data/studydeck.db`): the SQLite file; its directory
-  is created automatically. Point it at a persistent disk, not an ephemeral one.
-- `PORT` / `HOST` (default `3000` / `0.0.0.0`).
-- `OPENAI_API_KEY` (+ optional `OPENAI_BASE_URL`, `AI_MODEL`) enables the AI
-  study desk; without it everything else works and the desk shows a setup card.
-- `FREEBUFF_CLIENT_ID`, `FREEBUFF_ISSUER`, `APP_ORIGIN` enable Sign in with
-  Freebuff. `APP_ORIGIN` must be the public origin including scheme. A new
-  domain also needs one registration run by the owner:
-  `npx @freebuff/auth register --project <slug> --name "Studydeck" --environment production --redirect-uri https://<origin>/auth/freebuff/callback`.
+```sh
+bun test             # API, plan and SQLite adapter tests
+bun run typecheck    # client, worker, node and test projects
+bun run build        # Sites/Worker build into dist/
+```
 
-With no auth configuration the app still serves, but only a loopback origin
-(`http://127.0.0.1:<port>`) gets the single local preview identity. A public
-origin without auth configuration shows the sign-in screen and refuses API
-writes, by design.
+## Configuration
 
-## Verify before publishing
+Everything is optional locally; see `.env.example`.
 
-`bun test` uses a real local D1 database through Miniflare to verify CRUD,
-two-user isolation, signed-out refusals, origin checks and validation. Test
-identities are injected into the app factory only; the shipped Worker always
-uses the SDK. Also test the built Worker in workerd with its assets/bindings.
-After provisioning, verify actual Freebuff sign-in, callback, refresh and
-sign-out in a browser, plus two real accounts' isolation. Unit identities and
-a successful redirect do not prove the hosted login flow works. Publishing
-and real-account checks require the owner's authorization and setup.
+| Variable | Purpose |
+| --- | --- |
+| `OPENAI_API_KEY` | Enables the AI study desk. Without it the desk shows a setup card and the rest of the app works. |
+| `OPENAI_BASE_URL` | OpenAI-compatible endpoint, default `https://freebuff.com/api/v1/paid`. |
+| `AI_MODEL` | Model name for the desk. |
+| `FREEBUFF_CLIENT_ID`, `FREEBUFF_ISSUER`, `APP_ORIGIN` | Enable Sign in with Freebuff. `APP_ORIGIN` is the public origin including scheme. |
+| `DATABASE_PATH` | Node host only: SQLite file, default `data/studydeck.db`. |
+| `PORT`, `HOST` | Node host only: default `3000` and `0.0.0.0`. |
+
+The Node entry reads plain `process.env`, so load a `.env` with
+`node --env-file=.env dist/node/server.js`, or use your host's environment
+settings. Bun loads `.env` on its own.
+
+`.env` is gitignored. Never commit keys: this repository needs no secrets to
+build or test, and the one runtime key belongs in the host's environment.
+
+### Sign in with Freebuff
+
+Accounts are OIDC + PKCE and need no client secret. Each origin needs one
+public client ID, registered once by the project owner:
+
+```sh
+npx @freebuff/auth register --project <project-slug> --name "Studydeck" \
+  --environment production --redirect-uri https://<origin>/auth/freebuff/callback
+```
+
+Set the printed `FREEBUFF_CLIENT_ID` plus `APP_ORIGIN=https://<origin>`. The
+callback path is always `/auth/freebuff/callback`. On Freebuff Sites the
+platform injects these three variables at deploy time and no manual
+registration is needed.
+
+## Deploy
+
+### Freebuff Sites / Cloudflare Workers
+
+`deploy.json` and `wrangler.jsonc` build and publish the Worker with static
+assets from `dist/client`, and D1 as the `DB` binding. `bun run build` produces
+the bundle. Enable Sign in with Freebuff for the site so the platform supplies
+`FREEBUFF_CLIENT_ID`, `FREEBUFF_ISSUER` and `APP_ORIGIN`.
+
+### A plain Node host
+
+```sh
+bun run build:node   # dist/client + dist/node/server.js
+DATABASE_PATH=/var/lib/studydeck/studydeck.db PORT=3000 bun start
+```
+
+This works on a VPS, Render, Railway, Fly or in a Docker image with a volume.
+The SQLite file must live on **persistent** storage: a host whose filesystem is
+wiped between deploys or invocations (Vercel and other serverless function
+platforms) will lose student data, so use the Worker/D1 path there instead.
+
+## Project layout
+
+```
+src/client/    React pages, styles and the plan generator
+src/shared/    Types and the NCERT curriculum shared by browser and server
+src/worker/    Hono app, D1/SQLite query surface, schema, AI desk, auth
+src/node/      Node HTTP entry and the node:sqlite adapter
+tests/         API, planning and adapter tests
+scripts/       Post-build step for the Worker build
+```
+
+## Tests
+
+`bun test` runs the API against a real local D1 database through Miniflare:
+CRUD, two-student isolation, signed-out refusals, foreign-origin rejection and
+input validation, plus the revision-plan rules and the SQLite adapter's schema,
+batch commit and rollback. Test identities are injected into the app factory
+only; the shipped Worker always uses the real auth SDK.
+
+A hosted deployment still needs a manual check of the real sign-in, callback and
+sign-out flow with two accounts, since a passing unit test and a successful
+redirect do not prove it.

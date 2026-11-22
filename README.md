@@ -63,9 +63,14 @@ Everything is optional locally; see `.env.example`.
 
 | Variable | Purpose |
 | --- | --- |
-| `OPENAI_API_KEY` | Enables the AI study desk. Without it the desk shows a setup card and the rest of the app works. |
-| `OPENAI_BASE_URL` | OpenAI-compatible endpoint, default `https://freebuff.com/api/v1/paid`. |
-| `AI_MODEL` | Model name for the desk. |
+| `AI_PROVIDER` | Which service answers: `freebuff`, `openrouter`, `gemini`, `openai` or `ollama`. When omitted it is detected from the keys you set. |
+| `OPENROUTER_API_KEY` | OpenRouter key. Model defaults to `openrouter/auto`. |
+| `GEMINI_API_KEY`, `GOOGLE_API_KEY` | Google Gemini key. Model defaults to `gemini-2.5-flash`. |
+| `OPENAI_API_KEY` | A Freebuff key by default; an OpenAI key when `AI_PROVIDER=openai`. Without any key the desk shows a setup card and the rest of the app works. |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Point the desk at a local Ollama. No key needed. |
+| `AI_BASE_URL` | Any other OpenAI-compatible endpoint; beats the built-in URL for the chosen provider. |
+| `OPENAI_BASE_URL` | Older name for the same override, kept for existing deployments. |
+| `AI_MODEL` | Model name. On Freebuff it must be one of the allowlisted models; elsewhere any name the service accepts. |
 | `FREEBUFF_CLIENT_ID`, `FREEBUFF_ISSUER`, `APP_ORIGIN` | Enable Sign in with Freebuff. `APP_ORIGIN` is the public origin including scheme. |
 | `DATABASE_PATH` | Node host only: SQLite file, default `data/studydeck.db`. |
 | `PORT`, `HOST` | Node host only: default `3000` and `0.0.0.0`. |
@@ -76,6 +81,40 @@ settings. Bun loads `.env` on its own.
 
 `.env` is gitignored. Never commit keys: this repository needs no secrets to
 build or test, and the one runtime key belongs in the host's environment.
+
+### AI providers
+
+The study desk talks to any service that speaks the OpenAI chat-completions
+API, so one request shape covers all of them:
+
+```sh
+AI_PROVIDER=openrouter OPENROUTER_API_KEY=...    # https://openrouter.ai/keys
+AI_PROVIDER=gemini     GEMINI_API_KEY=...        # https://aistudio.google.com/apikey
+AI_PROVIDER=openai     OPENAI_API_KEY=...        # https://platform.openai.com/api-keys
+AI_PROVIDER=freebuff   OPENAI_API_KEY=...        # default, spends Freebuff credits
+```
+
+With no `AI_PROVIDER`, the first key that is set wins in the order OpenRouter,
+Gemini, Freebuff. `AI_MODEL` picks a model; each provider has a default, and
+Freebuff keeps a server-side allowlist so the browser can never choose one.
+
+Ollama runs on the machine serving the app and needs no key or account:
+
+```sh
+ollama pull llama3.2
+ollama serve
+AI_PROVIDER=ollama OLLAMA_MODEL=llama3.2 bun start
+```
+
+Ollama is only used when you point at it (`AI_PROVIDER=ollama`, or
+`OLLAMA_BASE_URL`/`OLLAMA_MODEL`), so a deployment without keys stays off
+instead of failing against `localhost`. A Cloudflare Worker cannot reach your
+machine, so on Sites use a hosted provider, or a public tunnel URL in
+`AI_BASE_URL`. The Node server prints which provider it found at startup.
+
+Keys never reach the browser, and every student is capped at 40 AI actions a
+day. Provider errors the student can act on (a refused key, a missing Ollama
+model, a rate limit) are shown as they are; everything else stays generic.
 
 ### Sign in with Freebuff
 

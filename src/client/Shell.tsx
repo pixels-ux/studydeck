@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Session } from '../shared/types'
 import Home from './Home'
 import Notes from './Notes'
@@ -20,10 +20,31 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'desk', label: 'AI study desk', hint: 'Summaries and answers from your notes' },
 ]
 
+/** `#/notes` and friends, so a reload or a bookmark keeps the tab. */
+function tabFromHash(): Tab {
+  const id = window.location.hash.replace(/^#\/?/, '')
+  return TABS.some((item) => item.id === id) ? (id as Tab) : 'today'
+}
+
 export default function Shell({ session }: { session: Session }) {
   const { data } = useWorkspace()
-  const [tab, setTab] = useState<Tab>('today')
+  const [tab, setTab] = useState<Tab>(tabFromHash)
   const [editing, setEditing] = useState(false)
+
+  useEffect(() => {
+    const sync = () => {
+      setTab(tabFromHash())
+      setEditing(false)
+    }
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  }, [])
+
+  const go = (next: Tab) => {
+    setEditing(false)
+    setTab(next)
+    if (window.location.hash !== `#/${next}`) window.location.hash = `/${next}`
+  }
   const active = TABS.find((item) => item.id === tab) ?? TABS[0]!
   const who = session.user?.name || session.user?.email || 'Signed in'
   const needsSetup = !data.profile
@@ -52,10 +73,7 @@ export default function Shell({ session }: { session: Session }) {
                   type="button"
                   className={!editing && item.id === tab ? 'rail-link active' : 'rail-link'}
                   aria-current={!editing && item.id === tab ? 'page' : undefined}
-                  onClick={() => {
-                    setEditing(false)
-                    setTab(item.id)
-                  }}
+                  onClick={() => go(item.id)}
                 >
                   {item.label}
                 </button>
@@ -103,7 +121,7 @@ export default function Shell({ session }: { session: Session }) {
             <Setup onDone={() => setEditing(false)} />
           ) : (
             <>
-              {tab === 'today' && <Home onNavigate={setTab} />}
+              {tab === 'today' && <Home onNavigate={go} />}
               {tab === 'timetable' && <Timetable />}
               {tab === 'work' && <Work />}
               {tab === 'syllabus' && <Syllabus />}

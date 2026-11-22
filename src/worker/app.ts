@@ -22,6 +22,7 @@ import {
   type NoteSource,
 } from './ai'
 import { appOrigin, currentUser, isLocalPreview, type Env } from './auth'
+import { calendarFileName, timetableFile } from './ics'
 import { AiError, resolveProvider } from './providers'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
@@ -327,6 +328,68 @@ export function createApp(authenticate: Authenticate = currentUser) {
   app.get('/api/data', async (c) =>
     c.json(await workspace(c.get('db'), c.env, c.get('user').sub)),
   )
+
+  /** Everything the student owns, in one file they can keep. */
+  app.get('/api/export', async (c) => {
+    const data = await workspace(c.get('db'), c.env, c.get('user').sub)
+    const today = new Date().toISOString().slice(0, 10)
+    return c.body(
+      JSON.stringify(
+        {
+          app: 'Studydeck',
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          profile: data.profile,
+          subjects: data.subjects,
+          entries: data.entries,
+          tasks: data.tasks,
+          notes: data.notes,
+          syllabus: data.syllabus,
+        },
+        null,
+        2,
+      ),
+      200,
+      {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="studydeck-${today}.json"`,
+      },
+    )
+  })
+
+  /** The weekly timetable and revision plan, ready for any calendar app. */
+  app.get('/api/timetable.ics', async (c) => {
+    const db = c.get('db')
+    const rows = await db
+      .prepare(
+        `SELECT ${entryColumns} FROM entries WHERE owner_sub = ? ORDER BY day ASC, start_min ASC`,
+      )
+      .bind(c.get('user').sub)
+      .all<EntryRow>()
+    return c.body(timetableFile(rows.results.map(mapEntry)), 200, {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${calendarFileName()}"`,
+    })
+  })
+
+  /**
+   * Deletes every row the student owns. There is no undo, so the browser asks
+   * first and offers the export above as the way to keep a copy.
+   */
+  app.delete('/api/workspace', async (c) => {
+    const db = c.get('db')
+    const owner = c.get('user').sub
+    await db.batch([
+      db.prepare('DELETE FROM entries WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM tasks WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM study_notes WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM syllabus_progress WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM subjects WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM profiles WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM ai_usage WHERE owner_sub = ?').bind(owner),
+    ])
+    return c.json(await workspace(db, c.env, owner))
+  })
 
   /**
    * The class-setup wizard: stores the class and daily schedule, creates or

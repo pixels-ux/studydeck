@@ -2038,3 +2038,11 @@ code {
     padding: 3px 2px;
   }
 }
+
+/* Download links share the button look. */
+a.btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

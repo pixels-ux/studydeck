@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { CLASS_LEVELS, curriculumFor } from '../shared/curriculum'
+import { api } from './api'
 import {
   DAY_LONG,
   fmtDuration,
@@ -44,7 +45,26 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
     { id: crypto.randomUUID(), name: 'Unit test', date: '', subjects: [] },
   ])
   const [busy, setBusy] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+
+  async function removeEverything() {
+    if (
+      !window.confirm(
+        'Delete your whole workspace? Your notes, tasks, timetable and syllabus ticks will be gone. This cannot be undone.',
+      )
+    )
+      return
+    setDeleting(true)
+    setError('')
+    try {
+      await api<unknown>('/api/workspace', { method: 'DELETE' })
+      window.location.reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not delete your data.')
+      setDeleting(false)
+    }
+  }
 
   const curriculum = useMemo(
     () => (classLevel === null ? [] : curriculumFor(classLevel)),
@@ -474,6 +494,37 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
           </button>
         )}
       </div>
+
+      {existing ? (
+        <section className="card">
+          <div className="card-head">
+            <h3>Your data</h3>
+            <span className="count">Yours alone</span>
+          </div>
+          <p className="muted">
+            Keep a copy of your subjects, timetable, tasks and notes as one JSON
+            file, or start again from an empty workspace.
+          </p>
+          <div className="form-actions">
+            <a className="btn ghost" href="/api/export" download>
+              Download a backup
+            </a>
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={deleting}
+              onClick={() => void removeEverything()}
+            >
+              {deleting ? 'Deleting…' : 'Delete everything'}
+            </button>
+          </div>
+          <p className="fineprint">
+            Deleting removes your data from the server and cannot be undone.
+            Your account itself stays, so you can build a new timetable straight
+            away.
+          </p>
+        </section>
+      ) : null}
     </div>
   )
 }

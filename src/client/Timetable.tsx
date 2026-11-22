@@ -242,6 +242,9 @@ export default function Timetable() {
           <button className="btn ghost" onClick={() => setShowSubjects((value) => !value)}>
             Subjects
           </button>
+          <a className="btn ghost" href="/api/timetable.ics" download>
+            Calendar file
+          </a>
           {plan === 'regular' ? (
             <button
               className="btn primary"

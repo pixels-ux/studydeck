@@ -143,6 +143,9 @@ test('signed-out requests are refused while public pages and health stay open', 
     ['/api/entries', 'POST'],
     ['/api/ai/ask', 'POST'],
     ['/api/ai/summarize', 'POST'],
+    ['/api/export', 'GET'],
+    ['/api/timetable.ics', 'GET'],
+    ['/api/workspace', 'DELETE'],
   ] as const) {
     const response = await call(path, undefined, method)
     expect(response.status).toBe(401)
@@ -470,6 +473,83 @@ test('missing database reports setup and local preview identity never activates 
       APP_ORIGIN: 'https://app.example.test',
     } as Env),
   ).toBeNull()
+})
+
+test('a student can export their data, take the timetable to a calendar and reset', async () => {
+  const setup = await call('/api/setup', 'carol', 'POST', {
+    ...setupBody,
+    subjects: [
+      { key: 'bio', name: 'Biology', color: '#3f6b52', teacher: '', examDate: '2026-12-02' },
+    ],
+    regular: [
+      {
+        subjectId: 'bio',
+        title: 'Biology',
+        kind: 'class',
+        plan: 'regular',
+        day: 1,
+        startMin: 480,
+        endMin: 525,
+        room: 'Room 9',
+        date: '',
+      },
+    ],
+    revision: [
+      {
+        subjectId: 'bio',
+        title: 'Biology revision',
+        kind: 'study',
+        plan: 'intensive',
+        date: '2026-12-01',
+        day: 1,
+        startMin: 960,
+        endMin: 1010,
+        room: '',
+      },
+    ],
+  })
+  expect(setup.status).toBe(200)
+
+  const exported = await call('/api/export', 'carol')
+  expect(exported.status).toBe(200)
+  expect(exported.headers.get('content-disposition')).toContain('studydeck-')
+  const file = (await exported.json()) as {
+    app: string
+    subjects: { name: string }[]
+    entries: unknown[]
+    profile: { classLevel: number } | null
+  }
+  expect(file.app).toBe('Studydeck')
+  expect(file.profile?.classLevel).toBe(10)
+  expect(file.subjects[0]?.name).toBe('Biology')
+  expect(file.entries).toHaveLength(2)
+
+  const calendar = await call('/api/timetable.ics', 'carol')
+  expect(calendar.status).toBe(200)
+  expect(calendar.headers.get('content-type')).toContain('text/calendar')
+  const ics = await calendar.text()
+  expect(ics.startsWith('BEGIN:VCALENDAR')).toBe(true)
+  expect(ics).toContain('SUMMARY:Biology')
+  expect(ics).toContain('RRULE:FREQ=WEEKLY')
+  expect(ics).toContain('LOCATION:Room 9')
+  expect(ics.trimEnd().endsWith('END:VCALENDAR')).toBe(true)
+  // Another student's calendar is their own.
+  expect(await (await call('/api/timetable.ics', 'dave')).text()).not.toContain(
+    'Biology',
+  )
+
+  // Only alice's neighbour is cleared, and only for the caller.
+  expect(
+    (
+      await call('/api/workspace', 'carol', 'DELETE', undefined, 'https://foreign.example')
+    ).status,
+  ).toBe(403)
+  expect((await call('/api/workspace', 'carol', 'DELETE')).status).toBe(200)
+  const after = await data('carol')
+  expect(after.profile).toBeNull()
+  expect(after.subjects).toHaveLength(0)
+  expect(after.entries).toHaveLength(0)
+  expect((await data('alice')).subjects.length).toBeGreaterThan(0)
 })
 
 test('the wizard payload saves in one call because every entry uses a subject key', async () => {

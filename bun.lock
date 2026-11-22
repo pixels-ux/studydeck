@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "web-app",
+      "name": "studydeck",
       "dependencies": {
         "@freebuff/auth": "0.1.0",
         "hono": "^4.13.0",

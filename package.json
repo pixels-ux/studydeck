@@ -1,8 +1,17 @@
 {
-  "name": "web-app",
+  "name": "studydeck",
   "version": "1.0.0",
   "private": true,
+  "description": "A timetable, work and syllabus organiser for CBSE/NCERT students.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pixels-ux/studydeck.git"
+  },
   "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build && node scripts/postbuild.mjs",

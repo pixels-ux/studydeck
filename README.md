@@ -1,9 +1,15 @@
 # Studydeck
 
+[![CI](https://github.com/pixels-ux/studydeck/actions/workflows/ci.yml/badge.svg)](https://github.com/pixels-ux/studydeck/actions/workflows/ci.yml)
+
 A timetable, work and syllabus organiser for CBSE/NCERT students. Tell it your
 class, your subjects and your test dates; it lays out your week and an exam
 revision plan, then keeps assignments, chapters and notes in one workspace that
 only you can see.
+
+![The Studydeck landing page](docs/screenshots/landing.png)
+
+![The Today screen, showing the day's classes and what is due](docs/screenshots/today.png)
 
 ## What it does
 
@@ -129,3 +135,10 @@ only; the shipped Worker always uses the real auth SDK.
 A hosted deployment still needs a manual check of the real sign-in, callback and
 sign-out flow with two accounts, since a passing unit test and a successful
 redirect do not prove it.
+
+Both commands run in CI on every push to `main` and on every pull request
+(`.github/workflows/ci.yml`).
+
+## License
+
+[MIT](LICENSE).

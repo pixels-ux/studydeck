@@ -1,27 +1,14 @@
 import type { Env } from './auth'
+import { AiError, resolveProvider } from './providers'
 import type { SqlDatabase } from './sql'
 
 export const AI_DAILY_LIMIT = 40
 
-/** Server-side allowlist; the browser never chooses the model. */
-const MODELS = [
-  'deepseek/deepseek-v4-flash',
-  'mimo/mimo-v2.5',
-  'z-ai/glm-5.3-flash',
-  'openai/gpt-6-luna',
-] as const
-
 export type NoteSource = { title: string; body: string }
 
+/** True when a provider and its key (if it needs one) are configured. */
 export function aiConfigured(env: Env): boolean {
-  return Boolean(env.OPENAI_API_KEY)
-}
-
-export function aiModel(env: Env): string {
-  const configured = env.AI_MODEL ?? ''
-  return (MODELS as readonly string[]).includes(configured)
-    ? configured
-    : MODELS[0]!
+  return resolveProvider(env) !== null
 }
 
 const MAX_SOURCE_CHARS = 14_000
@@ -42,31 +29,58 @@ export function buildSourceBlock(sources: NoteSource[]): string {
 
 type Message = { role: 'system' | 'user' | 'assistant'; content: string }
 
+/** Every supported provider speaks the OpenAI chat-completions request shape. */
 async function complete(
   env: Env,
   messages: Message[],
   maxTokens: number,
 ): Promise<string> {
-  const base = (
-    env.OPENAI_BASE_URL || 'https://freebuff.com/api/v1/paid'
-  ).replace(/\/+$/, '')
-  const response = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: aiModel(env),
-      messages,
-      temperature: 0.25,
-      max_tokens: maxTokens,
-      stream: false,
-    }),
-  })
-  if (!response.ok) {
-    throw new Error(`The AI service answered with ${response.status}.`)
+  const provider = resolveProvider(env)
+  if (!provider) throw new AiError('No AI provider is configured.')
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...provider.headers,
   }
+  if (provider.apiKey) headers.Authorization = `Bearer ${provider.apiKey}`
+
+  let response: Response
+  try {
+    response = await fetch(`${provider.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: provider.model,
+        messages,
+        temperature: 0.25,
+        max_tokens: maxTokens,
+        stream: false,
+      }),
+    })
+  } catch {
+    throw new AiError(
+      provider.id === 'ollama'
+        ? `Could not reach Ollama at ${provider.baseUrl}. Start it with "ollama serve" and check OLLAMA_BASE_URL.`
+        : `Could not reach ${provider.label}. Check the server's network and try again.`,
+    )
+  }
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403)
+      throw new AiError(
+        `${provider.label} refused the API key. Check the key set on the server.`,
+      )
+    if (response.status === 429)
+      throw new AiError(
+        `${provider.label} is rate limiting requests. Try again in a minute.`,
+      )
+    if (response.status === 404 && provider.id === 'ollama')
+      throw new AiError(
+        `Ollama does not have the model "${provider.model}". Run "ollama pull ${provider.model}" first.`,
+      )
+    throw new AiError(`${provider.label} answered with ${response.status}.`)
+  }
+
   const data = (await response.json()) as {
     choices?: { message?: { content?: unknown } }[]
   }
@@ -83,7 +97,7 @@ async function complete(
       .trim()
     if (text) return text
   }
-  throw new Error('The AI service returned an empty answer.')
+  throw new AiError(`${provider.label} returned an empty answer. Please try again.`)
 }
 
 const TUTOR =

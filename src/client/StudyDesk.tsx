@@ -141,6 +141,12 @@ export default function StudyDesk() {
             NCERT chapter outline to keep to your syllabus. It names the note it
             used, and a summary can be saved straight back into your notebook.
           </p>
+          {data.ai.enabled ? (
+            <p className="fineprint">
+              Answers come from {data.ai.provider}
+              {data.ai.model ? ` (${data.ai.model})` : ''}.
+            </p>
+          ) : null}
         </div>
         <label className="field">
           <span>Work from</span>
@@ -161,19 +167,25 @@ export default function StudyDesk() {
         <section className="card ai-setup">
           <h3>The AI study desk is not connected yet</h3>
           <p className="muted">
-            Everything else in Studydeck works without it. To turn on summaries
-            and answers, add your own Freebuff API key as a secret:
+            Everything else in Studydeck works without it. Set one key in the
+            server environment or <strong>Sites → Secrets</strong>, then restart:
           </p>
-          <ol className="setup-steps">
+          <ul className="setup-steps">
             <li>
-              Create a key at <strong>freebuff.com/account/api</strong>.
+              <code>OPENROUTER_API_KEY</code> from openrouter.ai/keys.
             </li>
             <li>
-              In this site’s dashboard choose <strong>Sites → Secrets</strong> and add{' '}
-              <code>OPENAI_API_KEY</code>.
+              <code>GEMINI_API_KEY</code> from aistudio.google.com/apikey.
             </li>
-            <li>Redeploy, then reload this page.</li>
-          </ol>
+            <li>
+              <code>OPENAI_API_KEY</code> for the hosted default (Freebuff), or
+              add <code>AI_PROVIDER=openai</code> for OpenAI itself.
+            </li>
+            <li>
+              Running the server yourself? <code>AI_PROVIDER=ollama</code> uses
+              a local Ollama and needs no key at all.
+            </li>
+          </ul>
           <p className="fineprint">
             The key stays on the server and is never sent to your browser. Each
             account is limited to {data.ai.limit} AI actions a day.

@@ -81,6 +81,9 @@ export type AiState = {
   enabled: boolean
   remaining: number
   limit: number
+  /** Which service answers, e.g. "Ollama"; null when the desk is off. */
+  provider: string | null
+  model: string | null
 }
 
 export type Profile = {

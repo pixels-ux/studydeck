@@ -15,10 +15,23 @@ export type Env = {
    * committed or deployed, so a hosted origin can never match it.
    */
   DEV_PREVIEW_HOST?: string
-  /** Owner's Freebuff API key, set as a Sites secret. Never sent to the browser. */
+  /**
+   * AI study desk. One provider is chosen by `AI_PROVIDER`, or detected from
+   * the keys below; see `src/worker/providers.ts`. Keys stay on the server.
+   */
+  AI_PROVIDER?: string
+  /** Any OpenAI-compatible endpoint; wins over the per-provider defaults. */
+  AI_BASE_URL?: string
+  AI_MODEL?: string
+  OPENROUTER_API_KEY?: string
+  GEMINI_API_KEY?: string
+  GOOGLE_API_KEY?: string
+  /** Freebuff by default; OpenAI itself with `AI_PROVIDER=openai`. */
   OPENAI_API_KEY?: string
   OPENAI_BASE_URL?: string
-  AI_MODEL?: string
+  /** A local Ollama server, e.g. http://127.0.0.1:11434/v1. */
+  OLLAMA_BASE_URL?: string
+  OLLAMA_MODEL?: string
 }
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]'])

@@ -22,6 +22,7 @@ import {
   type NoteSource,
 } from './ai'
 import { appOrigin, currentUser, isLocalPreview, type Env } from './auth'
+import { AiError, resolveProvider } from './providers'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
   ensureSchema,
@@ -302,6 +303,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         .bind(owner)
         .first<ProfileRow>(),
     ])
+    const provider = resolveProvider(env)
     return {
       subjects: subjects.results.map(mapSubject),
       entries: entries.results.map(mapEntry),
@@ -313,9 +315,11 @@ export function createApp(authenticate: Authenticate = currentUser) {
       })),
       profile: profileRow ? mapProfile(profileRow) : null,
       ai: {
-        enabled: aiConfigured(env),
+        enabled: Boolean(provider),
         remaining: Math.max(0, AI_DAILY_LIMIT - (await usedAi(db, owner))),
         limit: AI_DAILY_LIMIT,
+        provider: provider?.label ?? null,
+        model: provider?.model ?? null,
       },
     }
   }
@@ -896,7 +900,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
   }
 
   const AI_SETUP =
-    'The AI study desk is not connected yet. Add an OPENAI_API_KEY secret in Sites → Secrets, then redeploy. Everything else works without it.'
+    'The AI study desk is not connected yet. Set OPENROUTER_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY on the server (or run Ollama), then restart. Everything else works without it.'
   const AI_FAILED = 'The AI service did not answer. Please try again in a moment.'
 
   app.post('/api/ai/summarize', async (c) => {
@@ -923,8 +927,11 @@ export function createApp(authenticate: Authenticate = currentUser) {
         await syllabusContext(db, owner),
       )
       return c.json({ answer: summary, remaining: quota.remaining })
-    } catch {
-      return c.json({ error: AI_FAILED }, 502)
+    } catch (error) {
+      return c.json(
+        { error: error instanceof AiError ? error.message : AI_FAILED },
+        502,
+      )
     }
   })
 
@@ -956,8 +963,11 @@ export function createApp(authenticate: Authenticate = currentUser) {
         await syllabusContext(db, owner),
       )
       return c.json({ answer, remaining: quota.remaining })
-    } catch {
-      return c.json({ error: AI_FAILED }, 502)
+    } catch (error) {
+      return c.json(
+        { error: error instanceof AiError ? error.message : AI_FAILED },
+        502,
+      )
     }
   })
 

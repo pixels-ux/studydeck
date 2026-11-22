@@ -5,6 +5,7 @@ import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import worker from '../worker/index'
 import type { Env } from '../worker/auth'
+import { resolveProvider } from '../worker/providers'
 import { openDatabase } from './sqlite'
 
 const port = Number(process.env.PORT || 3000)
@@ -77,9 +78,16 @@ const env: Env = {
   FREEBUFF_CLIENT_ID: process.env.FREEBUFF_CLIENT_ID,
   FREEBUFF_ISSUER: process.env.FREEBUFF_ISSUER,
   APP_ORIGIN: process.env.APP_ORIGIN,
+  AI_PROVIDER: process.env.AI_PROVIDER,
+  AI_BASE_URL: process.env.AI_BASE_URL,
+  AI_MODEL: process.env.AI_MODEL,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
-  AI_MODEL: process.env.AI_MODEL,
+  OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
+  OLLAMA_MODEL: process.env.OLLAMA_MODEL,
 }
 
 const ctx = {
@@ -141,6 +149,12 @@ server.listen(port, host, () => {
     console.log(
       'Sign-in is off: set FREEBUFF_CLIENT_ID and APP_ORIGIN, then open the site on that origin.',
     )
+  const provider = resolveProvider(env)
+  console.log(
+    provider
+      ? `AI desk: ${provider.label} (${provider.model}) at ${provider.baseUrl}`
+      : 'AI desk is off: set OPENROUTER_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY, or run Ollama.',
+  )
 })
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const)

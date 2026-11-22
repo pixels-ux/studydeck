@@ -74,7 +74,8 @@ bun run build:node     # dist/client + dist/node/server.js
 DATABASE_PATH=data/studydeck.db PORT=3000 bun start   # or: node dist/node/server.js
 ```
 
-Environment:
+Environment (export the variables, or load an untracked `.env` with
+`node --env-file=.env dist/node/server.js`; Bun loads `.env` on its own):
 
 - `DATABASE_PATH` (default `data/studydeck.db`): the SQLite file; its directory
   is created automatically. Point it at a persistent disk, not an ephemeral one.

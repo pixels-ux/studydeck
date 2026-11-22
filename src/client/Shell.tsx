@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import type { Session } from '../shared/types'
 import Home from './Home'
 import Notes from './Notes'
 import Setup from './Setup'
@@ -26,7 +25,7 @@ function tabFromHash(): Tab {
   return TABS.some((item) => item.id === id) ? (id as Tab) : 'today'
 }
 
-export default function Shell({ session }: { session: Session }) {
+export default function Shell() {
   const { data } = useWorkspace()
   const [tab, setTab] = useState<Tab>(tabFromHash)
   const [editing, setEditing] = useState(false)
@@ -46,7 +45,6 @@ export default function Shell({ session }: { session: Session }) {
     if (window.location.hash !== `#/${next}`) window.location.hash = `/${next}`
   }
   const active = TABS.find((item) => item.id === tab) ?? TABS[0]!
-  const who = session.user?.name || session.user?.email || 'Signed in'
   const needsSetup = !data.profile
 
   const title = needsSetup || editing ? 'Class setup' : active.label
@@ -89,18 +87,10 @@ export default function Shell({ session }: { session: Session }) {
           )}
         </nav>
         <div className="rail-foot">
-          {session.mode === 'local' ? (
-            <span className="badge">Local preview</span>
-          ) : null}
           {data.profile ? (
             <span className="rail-class">Class {data.profile.classLevel} · CBSE</span>
           ) : null}
-          <p className="rail-who" title={who}>
-            {who}
-          </p>
-          <form method="post" action="/auth/freebuff/signout">
-            <button className="rail-signout">Sign out</button>
-          </form>
+          <p className="rail-who">On this computer</p>
         </div>
       </aside>
 
@@ -110,11 +100,6 @@ export default function Shell({ session }: { session: Session }) {
             <p className="eyebrow">{hint}</p>
             <h1>{title}</h1>
           </div>
-          {session.mode === 'local' ? (
-            <p className="topbar-note">
-              Local preview. Published sites use your Freebuff account.
-            </p>
-          ) : null}
         </header>
         <div className="content">
           {needsSetup || editing ? (

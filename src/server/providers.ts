@@ -1,4 +1,4 @@
-import type { Env } from './auth'
+import type { Env } from './env'
 
 export type ProviderId =
   | 'freebuff'

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Entry } from '../src/shared/types'
-import { timetableFile } from '../src/worker/ics'
+import { timetableFile } from '../src/server/ics'
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
   id: 'e1',

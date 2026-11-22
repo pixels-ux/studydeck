@@ -130,8 +130,3 @@ export type WorkspaceData = {
   ai: AiState
 }
 
-export type Session = {
-  user: { sub: string; name?: string; email?: string } | null
-  mode: 'local' | 'freebuff' | 'setup'
-  database: boolean
-}

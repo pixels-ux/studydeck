@@ -1,11 +1,11 @@
 import { afterEach, expect, test } from 'bun:test'
-import { askNotes } from '../src/worker/ai'
-import type { Env } from '../src/worker/auth'
+import { askNotes } from '../src/server/ai'
+import type { Env } from '../src/server/env'
 import {
   AiError,
   providerFromSettings,
   resolveProvider,
-} from '../src/worker/providers'
+} from '../src/server/providers'
 
 const env = (values: Record<string, string>): Env => values as unknown as Env
 const provider = (values: Record<string, string>) => resolveProvider(env(values))!

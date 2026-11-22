@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { SqlDatabase, SqlStatement, SqlValue } from '../worker/sql'
+import type { SqlDatabase, SqlStatement, SqlValue } from '../server/sql'
 
 /** The value types `node:sqlite` accepts as bound parameters. */
 type Param = null | number | bigint | string | Uint8Array

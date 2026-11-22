@@ -4,12 +4,35 @@
 
 A timetable, work and syllabus organiser for CBSE/NCERT students. Tell it your
 class, your subjects and your test dates; it lays out your week and an exam
-revision plan, then keeps assignments, chapters and notes in one workspace that
-only you can see.
+revision plan, then keeps assignments, chapters and notes in one workspace.
 
-![The Studydeck landing page](docs/screenshots/landing.png)
+It runs on your own computer. Clone it, run two commands, and everything —
+timetable, notes, tasks, your AI key — lives in a single file in the project
+folder. No account, no server to sign up for, nothing sent anywhere except the
+AI requests you ask for yourself.
 
 ![The Today screen, showing the day's classes and what is due](docs/screenshots/today.png)
+
+## Run it
+
+You need [Bun](https://bun.sh) (or Node 22.5+ and npm).
+
+```sh
+git clone https://github.com/pixels-ux/studydeck.git
+cd studydeck
+bun install
+bun run dev
+```
+
+Open <http://localhost:3000>. The first run asks for your class and subjects,
+then builds your week. `bun run dev` reloads the page as you edit the code.
+
+For a single build you can start at any time:
+
+```sh
+bun run build     # client into dist/client, server into dist/server
+bun start         # http://localhost:3000
+```
 
 ## What it does
 
@@ -25,194 +48,117 @@ only you can see.
 - **Syllabus** — NCERT chapters ticked off per subject.
 - **Notes** — private notes per subject.
 - **Your data** — download subjects, timetable, tasks, notes and syllabus as one
-  JSON file, or delete the whole workspace from the server.
+  JSON file, or delete the whole workspace.
 - **Calendar** — export the week and the revision plan as an `.ics` file for
   Google Calendar, Apple Calendar or Outlook.
 - **AI study desk** — summarise your notes into revision points, or ask a
   question answered only from your own notes, with the note it used. It knows
-  your class and chapters. Capped at 40 actions per student per day.
+  your class and chapters. Capped at 40 actions a day.
 
-## Stack
+## Your data
 
-- React 19 and Vite for the interface (`src/client`).
-- A Hono app for the API (`src/worker/app.ts`), run as a Cloudflare Worker in
-  production and through a small Node HTTP server on a plain host
-  (`src/node/server.ts`).
-- SQL through one small surface, `prepare` / `bind` / `first` / `all` / `run` /
-  `batch` (`src/worker/sql.ts`). Cloudflare D1 satisfies it directly; on Node,
-  `src/node/sqlite.ts` implements it over `node:sqlite`.
-- Sign in with Freebuff for accounts, with every row scoped to the signed-in
-  user's `sub` (`src/worker/auth.ts`, `src/worker/db.ts`).
-
-## Run it locally
+Everything is stored in `data/studydeck.db` next to the project, created on
+first run. Copy the file to back it up, move it to another computer, or delete it
+to start over. `DATABASE_PATH` points somewhere else if you prefer:
 
 ```sh
-bun install          # or npm install
-bun run dev          # Vite dev server, Worker with a local D1 database
+DATABASE_PATH=~/Documents/studydeck.db bun run dev
 ```
 
-Open the URL Vite prints. On a loopback origin with no auth configuration the
-app uses a single, clearly labelled local preview identity, so you can use it
-without signing in. That fallback never applies to a hosted origin.
+The in-app **Download a backup** button in Class setup writes the same content as
+JSON, and **Delete everything** empties the file without touching your notes in
+any other app.
 
-```sh
-bun test             # API, plan and SQLite adapter tests
-bun run typecheck    # client, worker, node and test projects
-bun run build        # Sites/Worker build into dist/
-```
+There is no login: the app trusts whoever can open <http://localhost:3000>. It
+binds to all interfaces by default so it works in a container; on a shared
+machine use `HOST=127.0.0.1 bun start` to keep it loopback-only.
 
-## Configuration
+## AI study desk
 
-Everything is optional locally; see `.env.example`.
+The desk is optional and off until you give it a key. Open **AI study desk** and
+use **Your own API key** at the bottom of the page: pick a service, paste a key,
+and save. The key is stored in your data file, never sent back to the browser,
+and used only for your own questions.
 
-| Variable | Purpose |
-| --- | --- |
-| `AI_PROVIDER` | Which service answers: `freebuff`, `openrouter`, `gemini`, `openai` or `ollama`. When omitted it is detected from the keys you set. |
-| `OPENROUTER_API_KEY` | OpenRouter key. Model defaults to `openrouter/auto`. |
-| `GEMINI_API_KEY`, `GOOGLE_API_KEY` | Google Gemini key. Model defaults to `gemini-2.5-flash`. |
-| `GROQ_API_KEY` | Groq key. Model defaults to `llama-3.3-70b-versatile`. |
-| `MISTRAL_API_KEY` | Mistral key. Model defaults to `mistral-small-latest`. |
-| `DEEPSEEK_API_KEY` | DeepSeek key. Model defaults to `deepseek-chat`. |
-| `TOGETHER_API_KEY` | Together key. Model defaults to `meta-llama/Llama-3.3-70B-Instruct-Turbo`. |
-| `AI_API_KEY` | Key for a service you point at with `AI_PROVIDER=custom`. |
-| `OPENAI_API_KEY` | A Freebuff key by default; an OpenAI key when `AI_PROVIDER=openai`. Without any key the desk shows a setup card and the rest of the app works. |
-| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Point the desk at a local Ollama. No key needed. |
-| `AI_BASE_URL` | Any other OpenAI-compatible endpoint; beats the built-in URL for the chosen provider. |
-| `OPENAI_BASE_URL` | Older name for the same override, kept for existing deployments. |
-| `AI_MODEL` | Model name. On Freebuff it must be one of the allowlisted models; elsewhere any name the service accepts. |
-| `FREEBUFF_CLIENT_ID`, `FREEBUFF_ISSUER`, `APP_ORIGIN` | Enable Sign in with Freebuff. `APP_ORIGIN` is the public origin including scheme. |
-| `DATABASE_PATH` | Node host only: SQLite file, default `data/studydeck.db`. |
-| `PORT`, `HOST` | Node host only: default `3000` and `0.0.0.0`. |
+| Service | Where to get a key | Default model |
+| --- | --- | --- |
+| OpenRouter | openrouter.ai/keys | `openrouter/auto` |
+| Google Gemini | aistudio.google.com/apikey | `gemini-2.5-flash` |
+| Groq | console.groq.com/keys | `llama-3.3-70b-versatile` |
+| OpenAI | platform.openai.com/api-keys | `gpt-4o-mini` |
+| Mistral | console.mistral.ai/api-keys | `mistral-small-latest` |
+| DeepSeek | platform.deepseek.com/api_keys | `deepseek-chat` |
+| Together | api.together.ai/settings/api-keys | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+| Freebuff | freebuff.com/account/api | allowlisted models |
+| Ollama | nothing to sign up for | `llama3.2` |
+| Anything else | any OpenAI-compatible endpoint | your model |
 
-The Node entry reads plain `process.env`, so load a `.env` with
-`node --env-file=.env dist/node/server.js`, or use your host's environment
-settings. Bun loads `.env` on its own.
+Any service that speaks the OpenAI chat-completions API works; pick *Other* and
+give it a base URL and a model.
 
-`.env` is gitignored. Never commit keys: this repository needs no secrets to
-build or test, and the one runtime key belongs in the host's environment.
-
-### AI providers
-
-The study desk talks to any service that speaks the OpenAI chat-completions
-API, so one request shape covers all of them:
-
-```sh
-AI_PROVIDER=openrouter OPENROUTER_API_KEY=...  # https://openrouter.ai/keys
-AI_PROVIDER=gemini     GEMINI_API_KEY=...      # https://aistudio.google.com/apikey
-AI_PROVIDER=groq       GROQ_API_KEY=...        # https://console.groq.com/keys
-AI_PROVIDER=mistral    MISTRAL_API_KEY=...     # https://console.mistral.ai/api-keys
-AI_PROVIDER=deepseek   DEEPSEEK_API_KEY=...    # https://platform.deepseek.com/api_keys
-AI_PROVIDER=together   TOGETHER_API_KEY=...    # https://api.together.ai/settings/api-keys
-AI_PROVIDER=openai     OPENAI_API_KEY=...      # https://platform.openai.com/api-keys
-AI_PROVIDER=freebuff   OPENAI_API_KEY=...      # default, spends Freebuff credits
-```
-
-Anything else that speaks the OpenAI chat-completions API works through
-`custom`:
-
-```sh
-AI_PROVIDER=custom AI_BASE_URL=https://your-service/v1 AI_MODEL=your-model AI_API_KEY=...
-```
-
-With no `AI_PROVIDER`, the first key that is set wins in the order OpenRouter,
-Groq, Gemini, DeepSeek, Mistral, Together, Freebuff. `AI_MODEL` picks a model;
-each provider has a default, and Freebuff keeps a server-side allowlist so the
-browser can never choose one.
-
-Ollama runs on the machine serving the app and needs no key or account:
+### Ollama, entirely offline
 
 ```sh
 ollama pull llama3.2
 ollama serve
-AI_PROVIDER=ollama OLLAMA_MODEL=llama3.2 bun start
 ```
 
-Ollama is only used when you point at it (`AI_PROVIDER=ollama`, or
-`OLLAMA_BASE_URL`/`OLLAMA_MODEL`), so a deployment without keys stays off
-instead of failing against `localhost`. A Cloudflare Worker cannot reach your
-machine, so on Sites use a hosted provider, or a public tunnel URL in
-`AI_BASE_URL`. The Node server prints which provider it found at startup.
+Then in the app pick **Ollama on this server**, leave the key empty, and save. If
+Ollama runs elsewhere, set the base URL (for example
+`http://192.168.1.20:11434/v1`).
 
-### Adding a key in the app
+### Keys from the environment instead
 
-You do not have to touch the server to turn the desk on. Sign in, open **AI
-study desk**, and use **Your own API key** at the bottom of the page: pick a
-service, paste the key, and optionally set a model (plus a base URL for
-`custom` or `ollama`). Save it and the desk starts answering straight away.
+The desk also reads keys at startup, which is handy for a scripted setup. A key
+saved in the app wins over these.
 
-- A key belongs to the account that saved it and is used only for that
-  student's questions. Other accounts are unaffected.
-- The key is never returned by any endpoint; the page shows only its last four
-  characters so you can recognise it. It is not included in exported data.
-- A saved key wins over the deployment's environment key. **Remove saved key**
-  falls back to whichever provider the server was configured with.
-- Keys are stored in the deployment's database, so use a key you can rotate and
-  treat database access as key access. `DELETE FROM ai_keys` clears them.
+| Variable | Purpose |
+| --- | --- |
+| `AI_PROVIDER` | `openrouter`, `gemini`, `groq`, `openai`, `mistral`, `deepseek`, `together`, `freebuff`, `custom` or `ollama`. |
+| `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `DEEPSEEK_API_KEY`, `TOGETHER_API_KEY` | Provider keys. |
+| `OPENAI_API_KEY` | A Freebuff key by default; an OpenAI key with `AI_PROVIDER=openai`. |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Point at a local Ollama. No key needed. |
+| `AI_BASE_URL`, `AI_MODEL` | Any OpenAI-compatible endpoint, and the model name. |
+| `DATABASE_PATH` | Where the data file lives, default `data/studydeck.db`. |
+| `PORT`, `HOST` | Default `3000` and `0.0.0.0`. |
 
-Keys never reach the browser, and every student is capped at 40 AI actions a
-day. Provider errors the student can act on (a refused key, a missing Ollama
-model, a rate limit) are shown as they are; everything else stays generic.
+With no `AI_PROVIDER`, the first key that is set wins in the order OpenRouter,
+Groq, Gemini, DeepSeek, Mistral, Together, Freebuff. Bun reads `.env` by itself;
+for the built server use `node --env-file=.env dist/server/server.js`. Copy
+`.env.example` to start. `.env` and `data/` are gitignored.
 
-### Sign in with Freebuff
+## Stack
 
-Accounts are OIDC + PKCE and need no client secret. Each origin needs one
-public client ID, registered once by the project owner:
-
-```sh
-npx @freebuff/auth register --project <project-slug> --name "Studydeck" \
-  --environment production --redirect-uri https://<origin>/auth/freebuff/callback
-```
-
-Set the printed `FREEBUFF_CLIENT_ID` plus `APP_ORIGIN=https://<origin>`. The
-callback path is always `/auth/freebuff/callback`. On Freebuff Sites the
-platform injects these three variables at deploy time and no manual
-registration is needed.
-
-## Deploy
-
-### Freebuff Sites / Cloudflare Workers
-
-`deploy.json` and `wrangler.jsonc` build and publish the Worker with static
-assets from `dist/client`, and D1 as the `DB` binding. `bun run build` produces
-the bundle. Enable Sign in with Freebuff for the site so the platform supplies
-`FREEBUFF_CLIENT_ID`, `FREEBUFF_ISSUER` and `APP_ORIGIN`.
-
-### A plain Node host
-
-```sh
-bun run build:node   # dist/client + dist/node/server.js
-DATABASE_PATH=/var/lib/studydeck/studydeck.db PORT=3000 bun start
-```
-
-This works on a VPS, Render, Railway, Fly or in a Docker image with a volume.
-The SQLite file must live on **persistent** storage: a host whose filesystem is
-wiped between deploys or invocations (Vercel and other serverless function
-platforms) will lose student data, so use the Worker/D1 path there instead.
+- React 19 and Vite for the interface (`src/client`).
+- A Hono app for the API (`src/server/app.ts`), mounted into a small Node HTTP
+  server that also serves the built client (`src/node/server.ts`). In
+  development a Vite middleware mounts the same app, so `bun run dev` is one
+  process on one origin.
+- SQL through a small surface, `prepare` / `bind` / `first` / `all` / `run` /
+  `batch` (`src/server/sql.ts`), implemented over `node:sqlite` on a local file
+  (`src/node/sqlite.ts`).
+- No third-party services, no telemetry, no accounts.
 
 ## Project layout
 
 ```
 src/client/    React pages, styles and the plan generator
 src/shared/    Types and the NCERT curriculum shared by browser and server
-src/worker/    Hono app, D1/SQLite query surface, schema, AI desk, auth
-src/node/      Node HTTP entry and the node:sqlite adapter
-tests/         API, planning and adapter tests
-scripts/       Post-build step for the Worker build
+src/server/    Hono app, schema, SQL surface, AI desk, calendar export
+src/node/      Node HTTP server, SQLite adapter, Vite dev middleware
+tests/         API, planning, calendar and provider tests
 ```
 
 ## Tests
 
-`bun test` runs the API against a real local D1 database through Miniflare:
-CRUD, two-student isolation, signed-out refusals, foreign-origin rejection and
-input validation, plus the revision-plan rules and the SQLite adapter's schema,
-batch commit and rollback. Test identities are injected into the app factory
-only; the shipped Worker always uses the real auth SDK.
+```sh
+bun test           # API against the real SQLite engine, planning, calendar
+bun run typecheck  # client, server and test projects
+```
 
-A hosted deployment still needs a manual check of the real sign-in, callback and
-sign-out flow with two accounts, since a passing unit test and a successful
-redirect do not prove it.
-
-Both commands run in CI on every push to `main` and on every pull request
+The API tests open an in-memory SQLite database and exercise the routes: setup,
+CRUD, validation, cross-origin writes, export, calendar and the AI key settings.
+They run in CI on every push to `main` and on every pull request
 (`.github/workflows/ci.yml`).
 
 ## License

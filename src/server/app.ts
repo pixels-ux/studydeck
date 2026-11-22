@@ -1,5 +1,3 @@
-import { isSameOriginRequest } from '@freebuff/auth'
-import type { FreebuffUser } from '@freebuff/auth'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { syllabusBrief } from '../shared/curriculum'
@@ -21,7 +19,7 @@ import {
   type NoteSource,
 } from './ai'
 import { clearAiKey, effectiveProvider, readAiKey, saveAiKey } from './aiSettings'
-import { appOrigin, currentUser, isLocalPreview, type Env } from './auth'
+import type { Env } from './env'
 import { calendarFileName, timetableFile } from './ics'
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers'
 import type { SqlDatabase, SqlStatement } from './sql'
@@ -40,11 +38,16 @@ import {
   type TaskRow,
 } from './db'
 
-type AppContext = {
-  Bindings: Env
-  Variables: { user: FreebuffUser; db: SqlDatabase }
+/** One person uses one copy of Studydeck, so there is a single workspace. */
+const LOCAL_OWNER = 'local'
+
+type AppContext = { Variables: { db: SqlDatabase } }
+
+/** A write must come from this origin, so another tab cannot post behind us. */
+function sameOrigin(request: Request): boolean {
+  const origin = request.headers.get('Origin')
+  return !origin || origin === new URL(request.url).origin
 }
-type Authenticate = (request: Request, env: Env) => Promise<FreebuffUser | null>
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
@@ -216,12 +219,19 @@ function insertEntry(
     )
 }
 
-/** Tests inject identities; production always uses the Freebuff SDK. */
-export function createApp(authenticate: Authenticate = currentUser) {
+/**
+ * The app runs on the student's own machine: one workspace, no accounts. Every
+ * write still has to come from this origin so a stray web page in the same
+ * browser cannot change the timetable behind their back.
+ */
+export function createApp(db: SqlDatabase, env: Env = {}) {
   const app = new Hono<AppContext>()
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.use('/api/*', async (c, next) => {
     c.header('Cache-Control', 'private, no-store')
+    if (WRITE_METHODS.has(c.req.method) && !sameOrigin(c.req.raw))
+      return c.json({ error: 'Cross-origin request refused.' }, 403)
+    await ensureSchema(db)
     await next()
   })
   app.use(
@@ -231,38 +241,6 @@ export function createApp(authenticate: Authenticate = currentUser) {
       onError: (c) => c.json({ error: 'Request is too large.' }, 413),
     }),
   )
-  app.get('/api/session', async (c) =>
-    c.json({
-      user: await authenticate(c.req.raw, c.env),
-      mode: isLocalPreview(c.req.raw, c.env)
-        ? 'local'
-        : c.env.FREEBUFF_CLIENT_ID && c.env.APP_ORIGIN
-          ? 'freebuff'
-          : 'setup',
-      database: Boolean(c.env.DB),
-    }),
-  )
-
-  // Every route below this point needs a signed-in user, a same-origin write
-  // and a database. Public pages are served by the asset fallback at the end.
-  app.use('/api/*', async (c, next) => {
-    const user = await authenticate(c.req.raw, c.env)
-    if (!user) return c.json({ error: 'Sign in required.' }, 401)
-    if (WRITE_METHODS.has(c.req.method)) {
-      const origin = appOrigin(c.req.raw, c.env)
-      if (!origin || !isSameOriginRequest(c.req.raw, origin))
-        return c.json({ error: 'Cross-origin request refused.' }, 403)
-    }
-    if (!c.env.DB)
-      return c.json(
-        { error: 'This app is still being set up. Please try again later.' },
-        503,
-      )
-    await ensureSchema(c.env.DB)
-    c.set('user', user)
-    c.set('db', c.env.DB)
-    await next()
-  })
 
   /** One payload shape for both the workspace load and a completed setup. */
   async function workspace(db: SqlDatabase, env: Env, owner: string) {
@@ -326,12 +304,12 @@ export function createApp(authenticate: Authenticate = currentUser) {
   }
 
   app.get('/api/data', async (c) =>
-    c.json(await workspace(c.get('db'), c.env, c.get('user').sub)),
+    c.json(await workspace(db, env, LOCAL_OWNER)),
   )
 
   /** Everything the student owns, in one file they can keep. */
   app.get('/api/export', async (c) => {
-    const data = await workspace(c.get('db'), c.env, c.get('user').sub)
+    const data = await workspace(db, env, LOCAL_OWNER)
     const today = new Date().toISOString().slice(0, 10)
     return c.body(
       JSON.stringify(
@@ -359,12 +337,11 @@ export function createApp(authenticate: Authenticate = currentUser) {
 
   /** The weekly timetable and revision plan, ready for any calendar app. */
   app.get('/api/timetable.ics', async (c) => {
-    const db = c.get('db')
     const rows = await db
       .prepare(
         `SELECT ${entryColumns} FROM entries WHERE owner_sub = ? ORDER BY day ASC, start_min ASC`,
       )
-      .bind(c.get('user').sub)
+      .bind(LOCAL_OWNER)
       .all<EntryRow>()
     return c.body(timetableFile(rows.results.map(mapEntry)), 200, {
       'Content-Type': 'text/calendar; charset=utf-8',
@@ -377,8 +354,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
    * first and offers the export above as the way to keep a copy.
    */
   app.delete('/api/workspace', async (c) => {
-    const db = c.get('db')
-    const owner = c.get('user').sub
+    const owner = LOCAL_OWNER
     await db.batch([
       db.prepare('DELETE FROM entries WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM tasks WHERE owner_sub = ?').bind(owner),
@@ -389,7 +365,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
       db.prepare('DELETE FROM ai_usage WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM ai_keys WHERE owner_sub = ?').bind(owner),
     ])
-    return c.json(await workspace(db, c.env, owner))
+    return c.json(await workspace(db, env, owner))
   })
 
   /**
@@ -398,8 +374,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
    * Notes and tasks are never touched, so a re-run keeps the student's work.
    */
   app.post('/api/setup', async (c) => {
-    const db = c.get('db')
-    const owner = c.get('user').sub
+    const owner = LOCAL_OWNER
     const body = await readBody(c.req.raw)
     const invalid = () =>
       c.json(
@@ -561,7 +536,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
       await db.batch(statements.slice(index, index + 40))
     }
 
-    return c.json(await workspace(db, c.env, owner))
+    return c.json(await workspace(db, env, owner))
   })
 
   app.post('/api/subjects', async (c) => {
@@ -569,8 +544,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
     const input = body ? parseSubject(body) : null
     if (!input)
       return c.json({ error: 'Give the subject a name of 40 characters or fewer.' }, 400)
-    const db = c.get('db')
-    const owner = c.get('user').sub
+    const owner = LOCAL_OWNER
     const count = await db
       .prepare('SELECT COUNT(*) AS total FROM subjects WHERE owner_sub = ?')
       .bind(owner)
@@ -598,8 +572,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
     const body = await readBody(c.req.raw)
     const input = body ? parseSubject(body) : null
     if (!input) return c.json({ error: 'That subject could not be saved.' }, 400)
-    const row = await c
-      .get('db')
+    const row = await db
       .prepare(
         'UPDATE subjects SET name = ?, color = ?, teacher = ?, exam_date = ? WHERE id = ? AND owner_sub = ? RETURNING id, name, color, teacher, exam_date, created_at',
       )
@@ -609,7 +582,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         input.teacher,
         input.examDate,
         c.req.param('id'),
-        c.get('user').sub,
+        LOCAL_OWNER,
       )
       .first<SubjectRow>()
     return row
@@ -618,8 +591,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
   })
 
   app.delete('/api/subjects/:id', async (c) => {
-    const db = c.get('db')
-    const owner = c.get('user').sub
+    const owner = LOCAL_OWNER
     const id = c.req.param('id')
     const removed = await db
       .prepare('DELETE FROM subjects WHERE id = ? AND owner_sub = ? RETURNING id')
@@ -654,8 +626,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
     const chapter = body ? clean(body.chapter, 120) : ''
     if (!subjectId || !chapter)
       return c.json({ error: 'Pick a subject and chapter to track.' }, 400)
-    const db = c.get('db')
-    const owner = c.get('user').sub
+    const owner = LOCAL_OWNER
     const owned = await db
       .prepare('SELECT id FROM subjects WHERE id = ? AND owner_sub = ?')
       .bind(subjectId, owner)
@@ -688,14 +659,13 @@ export function createApp(authenticate: Authenticate = currentUser) {
         { error: 'Check the day, start and finish times for that block.' },
         400,
       )
-    const row = await c
-      .get('db')
+    const row = await db
       .prepare(
         `INSERT INTO entries (id, owner_sub, subject_id, title, kind, day, start_min, end_min, room, plan, date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${entryColumns}`,
       )
       .bind(
         crypto.randomUUID(),
-        c.get('user').sub,
+        LOCAL_OWNER,
         input.subjectId,
         input.title,
         input.kind,
@@ -718,8 +688,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         { error: 'Check the day, start and finish times for that block.' },
         400,
       )
-    const row = await c
-      .get('db')
+    const row = await db
       .prepare(
         `UPDATE entries SET subject_id = ?, title = ?, kind = ?, day = ?, start_min = ?, end_min = ?, room = ?, plan = ?, date = ? WHERE id = ? AND owner_sub = ? RETURNING ${entryColumns}`,
       )
@@ -734,7 +703,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         input.plan,
         input.date,
         c.req.param('id'),
-        c.get('user').sub,
+        LOCAL_OWNER,
       )
       .first<EntryRow>()
     return row
@@ -743,10 +712,9 @@ export function createApp(authenticate: Authenticate = currentUser) {
   })
 
   app.delete('/api/entries/:id', async (c) => {
-    const removed = await c
-      .get('db')
+    const removed = await db
       .prepare('DELETE FROM entries WHERE id = ? AND owner_sub = ? RETURNING id')
-      .bind(c.req.param('id'), c.get('user').sub)
+      .bind(c.req.param('id'), LOCAL_OWNER)
       .first()
     return removed
       ? c.json({ ok: true })
@@ -768,8 +736,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         return c.json({ error: 'That revision plan could not be saved.' }, 400)
       inputs.push(parsed)
     }
-    const db = c.get('db')
-    const owner = c.get('user').sub
+    const owner = LOCAL_OWNER
     await db
       .prepare('DELETE FROM entries WHERE plan = ? AND owner_sub = ?')
       .bind('intensive', owner)
@@ -797,14 +764,13 @@ export function createApp(authenticate: Authenticate = currentUser) {
     const input = body ? parseTask(body) : null
     if (!input)
       return c.json({ error: 'A task needs a title of 120 characters or fewer.' }, 400)
-    const row = await c
-      .get('db')
+    const row = await db
       .prepare(
         `INSERT INTO tasks (id, owner_sub, subject_id, title, due_date, priority, done, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${taskColumns}`,
       )
       .bind(
         crypto.randomUUID(),
-        c.get('user').sub,
+        LOCAL_OWNER,
         input.subjectId,
         input.title,
         input.dueDate,
@@ -821,8 +787,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
     const body = await readBody(c.req.raw)
     const input = body ? parseTask(body) : null
     if (!input) return c.json({ error: 'That task could not be saved.' }, 400)
-    const row = await c
-      .get('db')
+    const row = await db
       .prepare(
         `UPDATE tasks SET subject_id = ?, title = ?, due_date = ?, priority = ?, done = ?, details = ? WHERE id = ? AND owner_sub = ? RETURNING ${taskColumns}`,
       )
@@ -834,7 +799,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         input.done ? 1 : 0,
         input.details,
         c.req.param('id'),
-        c.get('user').sub,
+        LOCAL_OWNER,
       )
       .first<TaskRow>()
     return row
@@ -843,10 +808,9 @@ export function createApp(authenticate: Authenticate = currentUser) {
   })
 
   app.delete('/api/tasks/:id', async (c) => {
-    const removed = await c
-      .get('db')
+    const removed = await db
       .prepare('DELETE FROM tasks WHERE id = ? AND owner_sub = ? RETURNING id')
-      .bind(c.req.param('id'), c.get('user').sub)
+      .bind(c.req.param('id'), LOCAL_OWNER)
       .first()
     return removed
       ? c.json({ ok: true })
@@ -862,14 +826,13 @@ export function createApp(authenticate: Authenticate = currentUser) {
         400,
       )
     const now = Date.now()
-    const row = await c
-      .get('db')
+    const row = await db
       .prepare(
         `INSERT INTO study_notes (id, owner_sub, subject_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${noteColumns}`,
       )
       .bind(
         crypto.randomUUID(),
-        c.get('user').sub,
+        LOCAL_OWNER,
         input.subjectId,
         input.title,
         input.body,
@@ -888,8 +851,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         { error: 'Write a note of up to 8,000 characters before saving.' },
         400,
       )
-    const row = await c
-      .get('db')
+    const row = await db
       .prepare(
         `UPDATE study_notes SET subject_id = ?, title = ?, body = ?, updated_at = ? WHERE id = ? AND owner_sub = ? RETURNING ${noteColumns}`,
       )
@@ -899,7 +861,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         input.body,
         Date.now(),
         c.req.param('id'),
-        c.get('user').sub,
+        LOCAL_OWNER,
       )
       .first<NoteRow>()
     return row
@@ -908,10 +870,9 @@ export function createApp(authenticate: Authenticate = currentUser) {
   })
 
   app.delete('/api/notes/:id', async (c) => {
-    const removed = await c
-      .get('db')
+    const removed = await db
       .prepare('DELETE FROM study_notes WHERE id = ? AND owner_sub = ? RETURNING id')
-      .bind(c.req.param('id'), c.get('user').sub)
+      .bind(c.req.param('id'), LOCAL_OWNER)
       .first()
     return removed
       ? c.json({ ok: true })
@@ -965,10 +926,9 @@ export function createApp(authenticate: Authenticate = currentUser) {
 
   /** Which service answers, and where its key comes from. Never the key. */
   app.get('/api/ai/settings', async (c) => {
-    const db = c.get('db')
-    const owner = c.get('user').sub
+    const owner = LOCAL_OWNER
     const stored = await readAiKey(db, owner)
-    const { provider, source } = await effectiveProvider(db, c.env, owner)
+    const { provider, source } = await effectiveProvider(db, env, owner)
     return c.json({
       source,
       provider: provider
@@ -1028,7 +988,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
         400,
       )
 
-    await saveAiKey(c.get('db'), c.get('user').sub, {
+    await saveAiKey(db, LOCAL_OWNER, {
       provider,
       model,
       baseUrl,
@@ -1038,7 +998,7 @@ export function createApp(authenticate: Authenticate = currentUser) {
   })
 
   app.delete('/api/ai/settings', async (c) => {
-    await clearAiKey(c.get('db'), c.get('user').sub)
+    await clearAiKey(db, LOCAL_OWNER)
     return c.json({ ok: true })
   })
 
@@ -1047,9 +1007,8 @@ export function createApp(authenticate: Authenticate = currentUser) {
   const AI_FAILED = 'The AI service did not answer. Please try again in a moment.'
 
   app.post('/api/ai/summarize', async (c) => {
-    const db = c.get('db')
-    const owner = c.get('user').sub
-    const { provider } = await effectiveProvider(db, c.env, owner)
+    const owner = LOCAL_OWNER
+    const { provider } = await effectiveProvider(db, env, owner)
     if (!provider) return c.json({ error: AI_SETUP }, 503)
     const body = await readBody(c.req.raw)
     const sources = await sourceNotes(db, owner, body)
@@ -1084,9 +1043,8 @@ export function createApp(authenticate: Authenticate = currentUser) {
     const question = clean(body?.question, 500)
     if (!question)
       return c.json({ error: 'Ask a question of up to 500 characters.' }, 400)
-    const db = c.get('db')
-    const owner = c.get('user').sub
-    const { provider } = await effectiveProvider(db, c.env, owner)
+    const owner = LOCAL_OWNER
+    const { provider } = await effectiveProvider(db, env, owner)
     if (!provider) return c.json({ error: AI_SETUP }, 503)
     const sources = await sourceNotes(db, owner, body)
     if (!sources.length)
@@ -1119,10 +1077,12 @@ export function createApp(authenticate: Authenticate = currentUser) {
   app.notFound((c) =>
     c.req.path === '/api' || c.req.path.startsWith('/api/')
       ? c.json({ error: 'Endpoint not found.' }, 404)
-      : c.env.ASSETS.fetch(c.req.raw),
+      : c.text('Not found', 404),
   )
-  app.onError((_error, c) =>
-    c.json({ error: 'Something went wrong. Please try again.' }, 500),
-  )
+  app.onError((error, c) => {
+    // A local app has a terminal to read, so print what actually broke.
+    console.error('Request failed', error)
+    return c.json({ error: 'Something went wrong. Please try again.' }, 500)
+  })
   return app
 }

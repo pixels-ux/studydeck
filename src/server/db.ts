@@ -1,10 +1,13 @@
 import type {
+  Citation,
   Entry,
   EntryKind,
+  LibraryMessage,
   Note,
   Plan,
   Priority,
   Profile,
+  Source,
   Subject,
   Task,
 } from '../shared/types'
@@ -71,6 +74,27 @@ const schema = [
     api_key TEXT NOT NULL DEFAULT '',
     updated_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS sources (
+    id TEXT PRIMARY KEY,
+    owner_sub TEXT NOT NULL,
+    subject_id TEXT,
+    title TEXT NOT NULL,
+    origin TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS sources_owner ON sources(owner_sub, updated_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS library_messages (
+    id TEXT PRIMARY KEY,
+    owner_sub TEXT NOT NULL,
+    subject_id TEXT,
+    role TEXT NOT NULL,
+    body TEXT NOT NULL,
+    citations TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS library_messages_owner ON library_messages(owner_sub, subject_id, created_at)`,
   `CREATE TABLE IF NOT EXISTS syllabus_progress (
     owner_sub TEXT NOT NULL,
     subject_id TEXT NOT NULL,
@@ -184,6 +208,71 @@ export const mapNote = (row: NoteRow): Note => ({
   body: row.body,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+})
+
+export type SourceRow = {
+  id: string
+  subject_id: string | null
+  title: string
+  origin: string
+  body: string
+  created_at: number
+  updated_at: number
+}
+export const mapSource = (row: SourceRow): Source => ({
+  id: row.id,
+  subjectId: row.subject_id,
+  title: row.title,
+  origin: row.origin,
+  body: row.body,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+})
+
+export type LibraryMessageRow = {
+  id: string
+  subject_id: string | null
+  role: string
+  body: string
+  citations: string
+  created_at: number
+}
+
+/** Citations are stored as JSON, so a damaged row must not break the load. */
+function readCitations(raw: string): Citation[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== 'object') return []
+      const record = item as Record<string, unknown>
+      const index = record.index
+      if (
+        typeof index !== 'number' ||
+        typeof record.sourceId !== 'string' ||
+        typeof record.sourceTitle !== 'string'
+      )
+        return []
+      return [
+        {
+          index,
+          sourceId: record.sourceId,
+          sourceTitle: record.sourceTitle,
+        },
+      ]
+    })
+  } catch {
+    return []
+  }
+}
+
+export const mapLibraryMessage = (row: LibraryMessageRow): LibraryMessage => ({
+  id: row.id,
+  subjectId: row.subject_id,
+  role: row.role === 'assistant' ? 'assistant' : 'student',
+  body: row.body,
+  citations: readCitations(row.citations),
+  createdAt: row.created_at,
 })
 
 export type ProfileRow = {

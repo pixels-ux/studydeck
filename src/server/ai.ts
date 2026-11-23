@@ -143,6 +143,64 @@ export function askNotes(
   )
 }
 
+/** Material as the library numbers it, so [2] means the same in prompt and UI. */
+export type PromptSource = { index: number; sourceTitle: string; text: string }
+
+function citedBlock(sources: PromptSource[]): string {
+  return sources
+    .map((source) => `[${source.index}] ${source.sourceTitle}\n${source.text}`)
+    .join('\n\n')
+}
+
+/**
+ * A notebook answer: the student's own material, numbered, with the answer
+ * asked to name the numbers it used. Retrieval has already picked the pages,
+ * so the model only has to read them and stay honest about gaps.
+ */
+export function answerFromMaterial(
+  provider: Provider,
+  question: string,
+  sources: PromptSource[],
+  context = '',
+): Promise<string> {
+  return complete(
+    provider,
+    [
+      { role: 'system', content: systemPrompt(context) },
+      {
+        role: 'user',
+        content:
+          `Answer the student’s question using only their material below. After each claim, cite the material it came from with its bracketed number, like [2]. ` +
+          `If the material does not cover it, say "I couldn't find that in your material" and name what to add. Do not answer from general knowledge.\n\n` +
+          `Material:\n${citedBlock(sources)}\n\nQuestion: ${question}`,
+      },
+    ],
+    700,
+  )
+}
+
+/** A transformation: turn one piece of material into practice questions. */
+export function practiceQuestions(
+  provider: Provider,
+  source: NoteSource,
+  context = '',
+): Promise<string> {
+  return complete(
+    provider,
+    [
+      { role: 'system', content: systemPrompt(context) },
+      {
+        role: 'user',
+        content:
+          `Write 5 exam-style practice questions from the material below, easiest first. Number them 1 to 5. ` +
+          `After each question, put the answer on the next line beginning "Answer: ". Use only what the material says.\n\n` +
+          buildSourceBlock([source]),
+      },
+    ],
+    900,
+  )
+}
+
 export async function usedAi(
   db: SqlDatabase,
   owner: string,

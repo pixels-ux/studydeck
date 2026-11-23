@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Home from './Home'
+import Library from './Library'
 import Notes from './Notes'
 import Setup from './Setup'
 import StudyDesk from './StudyDesk'
@@ -8,7 +9,14 @@ import Timetable from './Timetable'
 import Work from './Work'
 import { useWorkspace } from './workspace'
 
-export type Tab = 'today' | 'timetable' | 'work' | 'syllabus' | 'notes' | 'desk'
+export type Tab =
+  | 'today'
+  | 'timetable'
+  | 'work'
+  | 'syllabus'
+  | 'notes'
+  | 'library'
+  | 'desk'
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'today', label: 'Today', hint: 'Classes, work and exams' },
@@ -16,6 +24,11 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'work', label: 'Work', hint: 'Assignments and deadlines' },
   { id: 'syllabus', label: 'Syllabus', hint: 'NCERT chapters you have covered' },
   { id: 'notes', label: 'Notes', hint: 'Everything you have written' },
+  {
+    id: 'library',
+    label: 'Library',
+    hint: 'Your material, searched and answered with citations',
+  },
   { id: 'desk', label: 'AI study desk', hint: 'Summaries and answers from your notes' },
 ]
 
@@ -111,6 +124,7 @@ export default function Shell() {
               {tab === 'work' && <Work />}
               {tab === 'syllabus' && <Syllabus />}
               {tab === 'notes' && <Notes />}
+              {tab === 'library' && <Library />}
               {tab === 'desk' && <StudyDesk />}
             </>
           )}

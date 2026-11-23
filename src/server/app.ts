@@ -7,13 +7,17 @@ import type {
   NoteInput,
   Plan,
   Priority,
+  LibrarySearchHit,
+  SourceInput,
   SubjectInput,
   TaskInput,
 } from '../shared/types'
 import {
   AI_DAILY_LIMIT,
+  answerFromMaterial,
   askNotes,
   consumeAi,
+  practiceQuestions,
   summariseNotes,
   usedAi,
   type NoteSource,
@@ -21,19 +25,24 @@ import {
 import { clearAiKey, effectiveProvider, readAiKey, saveAiKey } from './aiSettings'
 import type { Env } from './env'
 import { calendarFileName, timetableFile } from './ics'
+import { chunkSource, MAX_SOURCE_CHARS, retrieve, search } from './library'
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
   ensureSchema,
   mapEntry,
+  mapLibraryMessage,
   mapNote,
   mapProfile,
+  mapSource,
   mapSubject,
   mapTask,
   readProfile,
   type EntryRow,
+  type LibraryMessageRow,
   type NoteRow,
   type ProfileRow,
+  type SourceRow,
   type SubjectRow,
   type TaskRow,
 } from './db'
@@ -170,8 +179,7 @@ function parseTask(body: Record<string, unknown>): TaskInput | null {
   }
 }
 
-function parseNote(body: Record<string, unknown>): NoteInput | null {
-  if (typeof body.body === 'string' && body.body.length > 8000) return null
+function parseNote(body: Record<string, unknown>): NoteInput | null {  if (typeof body.body === 'string' && body.body.length > 8000) return null
   const noteBody = typeof body.body === 'string' ? body.body : ''
   const subjectId = optionalIdentifier(body.subjectId)
   if (subjectId === undefined) return null
@@ -186,11 +194,39 @@ function parseNote(body: Record<string, unknown>): NoteInput | null {
   return { subjectId, title, body: noteBody }
 }
 
+/** Material the student brings in: pasted text, or a text file they chose. */
+function parseSource(body: Record<string, unknown>): SourceInput | null {
+  if (typeof body.body !== 'string' || body.body.length > MAX_SOURCE_CHARS)
+    return null
+  const sourceBody = body.body
+  const subjectId = optionalIdentifier(body.subjectId)
+  if (subjectId === undefined || !sourceBody.trim()) return null
+  const title =
+    clean(body.title, 120) ||
+    sourceBody
+      .split('\n')[0]!
+      .trim()
+      .slice(0, 80) ||
+    'Untitled material'
+  return {
+    subjectId,
+    title,
+    origin: clean(body.origin, 120) || 'Pasted',
+    body: sourceBody,
+  }
+}
+
 const entryColumns =
   'id, subject_id, title, kind, day, start_min, end_min, room, plan, date'
 const taskColumns =
   'id, subject_id, title, due_date, priority, done, details, created_at'
 const noteColumns = 'id, subject_id, title, body, created_at, updated_at'
+const sourceColumns =
+  'id, subject_id, title, origin, body, created_at, updated_at'
+const messageColumns =
+  'id, subject_id, role, body, citations, created_at'
+const TRANSFORMS = ['summary', 'questions'] as const
+type Transform = (typeof TRANSFORMS)[number]
 
 /** One INSERT shared by the revision-plan and class-setup endpoints. */
 function insertEntry(
@@ -244,7 +280,16 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
 
   /** One payload shape for both the workspace load and a completed setup. */
   async function workspace(db: SqlDatabase, env: Env, owner: string) {
-    const [subjects, entries, tasks, notes, syllabus, profileRow] = await Promise.all([
+    const [
+      subjects,
+      entries,
+      tasks,
+      notes,
+      sources,
+      library,
+      syllabus,
+      profileRow,
+    ] = await Promise.all([
       db
         .prepare(
           'SELECT id, name, color, teacher, exam_date, created_at FROM subjects WHERE owner_sub = ? ORDER BY created_at ASC',
@@ -271,6 +316,18 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         .all<NoteRow>(),
       db
         .prepare(
+          `SELECT ${sourceColumns} FROM sources WHERE owner_sub = ? ORDER BY updated_at DESC LIMIT 300`,
+        )
+        .bind(owner)
+        .all<SourceRow>(),
+      db
+        .prepare(
+          `SELECT ${messageColumns} FROM library_messages WHERE owner_sub = ? ORDER BY created_at ASC LIMIT 400`,
+        )
+        .bind(owner)
+        .all<LibraryMessageRow>(),
+      db
+        .prepare(
           'SELECT subject_id, chapter FROM syllabus_progress WHERE owner_sub = ? ORDER BY done_at ASC',
         )
         .bind(owner)
@@ -288,6 +345,8 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       entries: entries.results.map(mapEntry),
       tasks: tasks.results.map(mapTask),
       notes: notes.results.map(mapNote),
+      sources: sources.results.map(mapSource),
+      library: library.results.map(mapLibraryMessage),
       syllabus: syllabus.results.map((row) => ({
         subjectId: row.subject_id,
         chapter: row.chapter,
@@ -323,6 +382,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
           tasks: data.tasks,
           notes: data.notes,
           syllabus: data.syllabus,
+          sources: data.sources,
         },
         null,
         2,
@@ -359,6 +419,8 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       db.prepare('DELETE FROM entries WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM tasks WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM study_notes WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM sources WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM library_messages WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM syllabus_progress WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM subjects WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM profiles WHERE owner_sub = ?').bind(owner),
@@ -608,6 +670,16 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       db
         .prepare(
           'UPDATE study_notes SET subject_id = NULL WHERE subject_id = ? AND owner_sub = ?',
+        )
+        .bind(id, owner),
+      db
+        .prepare(
+          'UPDATE sources SET subject_id = NULL WHERE subject_id = ? AND owner_sub = ?',
+        )
+        .bind(id, owner),
+      db
+        .prepare(
+          'UPDATE library_messages SET subject_id = NULL WHERE subject_id = ? AND owner_sub = ?',
         )
         .bind(id, owner),
       db
@@ -877,6 +949,288 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     return removed
       ? c.json({ ok: true })
       : c.json({ error: 'Note not found.' }, 404)
+  })
+
+  /* The library: material, search, grounded questions and transformations. */
+
+  /** Material for one subject, or the unsorted material when none is named. */
+  async function librarySources(
+    owner: string,
+    subjectId: string | null,
+  ): Promise<SourceRow[]> {
+    const rows = await db
+      .prepare(
+        `SELECT ${sourceColumns} FROM sources WHERE owner_sub = ? AND subject_id IS ? ORDER BY updated_at DESC LIMIT 300`,
+      )
+      .bind(owner, subjectId)
+      .all<SourceRow>()
+    return rows.results
+  }
+
+  /** Cut every row into paragraphs once, for retrieval and search. */
+  const chunksOf = (rows: SourceRow[]) =>
+    rows.flatMap((row) =>
+      chunkSource({ id: row.id, title: row.title, body: row.body }),
+    )
+
+  app.post('/api/sources', async (c) => {
+    const body = await readBody(c.req.raw)
+    const input = body ? parseSource(body) : null
+    if (!input)
+      return c.json(
+        {
+          error: `Add a title and up to ${MAX_SOURCE_CHARS.toLocaleString()} characters of material.`,
+        },
+        400,
+      )
+    if (input.subjectId) {
+      const owned = await db
+        .prepare('SELECT id FROM subjects WHERE id = ? AND owner_sub = ?')
+        .bind(input.subjectId, LOCAL_OWNER)
+        .first()
+      if (!owned) return c.json({ error: 'Subject not found.' }, 404)
+    }
+    const count = await db
+      .prepare('SELECT COUNT(*) AS total FROM sources WHERE owner_sub = ?')
+      .bind(LOCAL_OWNER)
+      .first<{ total: number }>()
+    if ((count?.total ?? 0) >= 200)
+      return c.json({ error: 'The library holds up to 200 pieces of material.' }, 400)
+    const now = Date.now()
+    const row = await db
+      .prepare(
+        `INSERT INTO sources (id, owner_sub, subject_id, title, origin, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${sourceColumns}`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        LOCAL_OWNER,
+        input.subjectId,
+        input.title,
+        input.origin,
+        input.body,
+        now,
+        now,
+      )
+      .first<SourceRow>()
+    return c.json({ source: mapSource(row!) }, 201)
+  })
+
+  app.patch('/api/sources/:id', async (c) => {
+    const body = await readBody(c.req.raw)
+    const input = body ? parseSource(body) : null
+    if (!input)
+      return c.json(
+        {
+          error: `Add a title and up to ${MAX_SOURCE_CHARS.toLocaleString()} characters of material.`,
+        },
+        400,
+      )
+    const row = await db
+      .prepare(
+        `UPDATE sources SET subject_id = ?, title = ?, origin = ?, body = ?, updated_at = ? WHERE id = ? AND owner_sub = ? RETURNING ${sourceColumns}`,
+      )
+      .bind(
+        input.subjectId,
+        input.title,
+        input.origin,
+        input.body,
+        Date.now(),
+        c.req.param('id'),
+        LOCAL_OWNER,
+      )
+      .first<SourceRow>()
+    return row
+      ? c.json({ source: mapSource(row) })
+      : c.json({ error: 'Material not found.' }, 404)
+  })
+
+  app.delete('/api/sources/:id', async (c) => {
+    const removed = await db
+      .prepare('DELETE FROM sources WHERE id = ? AND owner_sub = ? RETURNING id')
+      .bind(c.req.param('id'), LOCAL_OWNER)
+      .first()
+    return removed
+      ? c.json({ ok: true })
+      : c.json({ error: 'Material not found.' }, 404)
+  })
+
+  /** Full-text search across the material, one best paragraph per source. */
+  app.get('/api/library/search', async (c) => {
+    const query = clean(c.req.query('q'), 200)
+    const rawSubject = c.req.query('subjectId')
+    const subjectId = rawSubject ? identifier(rawSubject) : null
+    if (rawSubject && !subjectId)
+      return c.json({ error: 'Subject not found.' }, 404)
+    if (!query) return c.json({ results: [] as LibrarySearchHit[] })
+    const rows = await librarySources(LOCAL_OWNER, subjectId)
+    return c.json({ results: search(chunksOf(rows), query) })
+  })
+
+  /** Ask a question of the material and keep the exchange in the notebook. */
+  app.post('/api/library/ask', async (c) => {
+    const body = await readBody(c.req.raw)
+    const question = clean(body?.question, 500)
+    const subjectId = optionalIdentifier(body?.subjectId)
+    if (!question || subjectId === undefined)
+      return c.json({ error: 'Ask a question of up to 500 characters.' }, 400)
+    const owner = LOCAL_OWNER
+    const { provider } = await effectiveProvider(db, env, owner)
+    if (!provider) return c.json({ error: AI_SETUP }, 503)
+    const rows = await librarySources(owner, subjectId)
+    if (!rows.length)
+      return c.json(
+        { error: 'Add some material first. Answers come from what you add.' },
+        400,
+      )
+    const cited = retrieve(chunksOf(rows), question)
+    const quota = await consumeAi(db, owner)
+    if (!quota.ok)
+      return c.json(
+        { error: `You have used today’s ${AI_DAILY_LIMIT} AI actions. They reset tomorrow.` },
+        429,
+      )
+    try {
+      const answer = await answerFromMaterial(
+        provider,
+        question,
+        cited,
+        await syllabusContext(db, owner),
+      )
+      const now = Date.now()
+      const student = {
+        id: crypto.randomUUID(),
+        subjectId,
+        role: 'student' as const,
+        body: question,
+        citations: [],
+        createdAt: now,
+      }
+      const reply = {
+        id: crypto.randomUUID(),
+        subjectId,
+        role: 'assistant' as const,
+        body: answer,
+        citations: cited.map(({ index, sourceId, sourceTitle }) => ({
+          index,
+          sourceId,
+          sourceTitle,
+        })),
+        createdAt: now + 1,
+      }
+      const insert = (message: typeof student | typeof reply) =>
+        db
+          .prepare(
+            'INSERT INTO library_messages (id, owner_sub, subject_id, role, body, citations, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            message.id,
+            owner,
+            message.subjectId,
+            message.role,
+            message.body,
+            JSON.stringify(message.citations),
+            message.createdAt,
+          )
+      await db.batch([
+        insert(student),
+        insert(reply),
+        // A notebook keeps the recent conversation, not every question ever.
+        db
+          .prepare(
+            `DELETE FROM library_messages WHERE owner_sub = ? AND subject_id IS ? AND id NOT IN (
+               SELECT id FROM library_messages WHERE owner_sub = ? AND subject_id IS ? ORDER BY created_at DESC LIMIT 40
+             )`,
+          )
+          .bind(owner, subjectId, owner, subjectId),
+      ])
+      return c.json({ student, reply, remaining: quota.remaining })
+    } catch (error) {
+      return c.json(
+        { error: error instanceof AiError ? error.message : AI_FAILED },
+        502,
+      )
+    }
+  })
+
+  /** Starts the conversation for a subject over. */
+  app.delete('/api/library/messages', async (c) => {
+    const rawSubject = c.req.query('subjectId')
+    const subjectId = rawSubject ? identifier(rawSubject) : null
+    if (rawSubject && !subjectId)
+      return c.json({ error: 'Subject not found.' }, 404)
+    await db
+      .prepare('DELETE FROM library_messages WHERE owner_sub = ? AND subject_id IS ?')
+      .bind(LOCAL_OWNER, subjectId)
+      .run()
+    return c.json({ ok: true })
+  })
+
+  /**
+   * A transformation: make revision notes or practice questions from one piece
+   * of material and keep the result as a study note.
+   */
+  app.post('/api/library/transform', async (c) => {
+    const body = await readBody(c.req.raw)
+    const sourceId = body ? identifier(body.sourceId) : null
+    const kind = TRANSFORMS.find((option) => option === body?.kind)
+    if (!sourceId || !kind)
+      return c.json(
+        { error: 'Pick a piece of material and what to make from it.' },
+        400,
+      )
+    const owner = LOCAL_OWNER
+    const row = await db
+      .prepare(
+        `SELECT ${sourceColumns} FROM sources WHERE id = ? AND owner_sub = ?`,
+      )
+      .bind(sourceId, owner)
+      .first<SourceRow>()
+    if (!row) return c.json({ error: 'Material not found.' }, 404)
+    const { provider } = await effectiveProvider(db, env, owner)
+    if (!provider) return c.json({ error: AI_SETUP }, 503)
+    const quota = await consumeAi(db, owner)
+    if (!quota.ok)
+      return c.json(
+        { error: `You have used today’s ${AI_DAILY_LIMIT} AI actions. They reset tomorrow.` },
+        429,
+      )
+    try {
+      const context = await syllabusContext(db, owner)
+      const text =
+        kind === 'summary'
+          ? await summariseNotes(
+              provider,
+              [{ title: row.title, body: row.body }],
+              context,
+            )
+          : await practiceQuestions(
+              provider,
+              { title: row.title, body: row.body },
+              context,
+            )
+      const now = Date.now()
+      const title = `${kind === 'summary' ? 'Summary' : 'Practice questions'} · ${row.title}`.slice(0, 120)
+      const note = await db
+        .prepare(
+          `INSERT INTO study_notes (id, owner_sub, subject_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${noteColumns}`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          owner,
+          row.subject_id,
+          title,
+          text,
+          now,
+          now,
+        )
+        .first<NoteRow>()
+      return c.json({ note: mapNote(note!), remaining: quota.remaining })
+    } catch (error) {
+      return c.json(
+        { error: error instanceof AiError ? error.message : AI_FAILED },
+        502,
+      )
+    }
   })
 
   async function sourceNotes(

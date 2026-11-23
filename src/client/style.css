@@ -2054,3 +2054,132 @@ a.btn {
   gap: 12px;
   margin-bottom: 16px;
 }
+
+/* Library: material, search, cited answers and transformations. */
+
+.library-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.source-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #faf8ef;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.source-body {
+  min-height: 180px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.source-list {
+  list-style: none;
+  margin: 8px 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 56vh;
+  overflow-y: auto;
+}
+
+.source-item {
+  background: #fbfaf3;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.source-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+}
+
+.source-head strong {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-preview {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hit-list {
+  list-style: none;
+  margin: 8px 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-left: 2px solid #d2e0cc;
+  padding-left: 10px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.hit strong {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.citation {
+  font-size: 11.5px;
+  background: var(--green-soft);
+  border: 1px solid #d2e0cc;
+  color: var(--green);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.notice {
+  background: var(--green-soft);
+  border: 1px solid #d2e0cc;
+  color: var(--green);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+}
+
+@media (max-width: 900px) {
+  .library-layout {
+    grid-template-columns: 1fr;
+  }
+}

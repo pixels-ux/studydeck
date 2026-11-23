@@ -47,6 +47,9 @@ bun start         # http://localhost:3000
   today and next week.
 - **Syllabus** — NCERT chapters ticked off per subject.
 - **Notes** — private notes per subject.
+- **Library** — your own material: paste a chapter or add a text file, search
+  inside it, ask questions answered only from it with citations, and turn it
+  into revision notes or practice questions.
 - **Your data** — download subjects, timetable, tasks, notes and syllabus as one
   JSON file, or delete the whole workspace.
 - **Calendar** — export the week and the revision plan as an `.ics` file for
@@ -72,6 +75,31 @@ any other app.
 There is no login: the app trusts whoever can open <http://localhost:3000>. It
 binds to all interfaces by default so it works in a container; on a shared
 machine use `HOST=127.0.0.1 bun start` to keep it loopback-only.
+
+## Library
+
+The library is a small notebook for material you are studying from. Open
+**Library**, paste a chapter or choose a `.txt`/`.md` file, and give it a
+subject. Then:
+
+- **Find** searches every paragraph and shows the sentence around the match.
+- **Ask** sends only the paragraphs that match your question and asks for an
+  answer from them alone. The answer cites them as `[1]`, `[2]` and a chip under
+  it names the material used. The conversation is kept per subject, and **Start
+  over** clears it.
+- **Summarise** and **Practice questions** turn one item into a study note saved
+  in Notes, ready to edit.
+
+Matching is by keyword: material is cut into paragraphs, and the paragraphs
+sharing the rarest words with your question are the ones sent. Nothing is
+embedded or uploaded for indexing, so there is no vector database to install.
+Limits are 200 items at 20,000 characters each, and AI work shares the same 40
+actions a day. Adding, reading and searching material needs no AI key; asking
+and transforming do.
+
+The notebook idea, with sources, cited chat, search and transformations, is
+adapted from [Open Notebook](https://github.com/lfnovo/open-notebook) (MIT) and
+reimplemented for one local workspace on SQLite.
 
 ## AI study desk
 

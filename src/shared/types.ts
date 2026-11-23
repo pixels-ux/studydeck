@@ -77,6 +77,47 @@ export type SyllabusTick = {
   chapter: string
 }
 
+/** One piece of study material the student brings in: a chapter, an article. */
+export type Source = {
+  id: string
+  subjectId: string | null
+  title: string
+  /** Where it came from, e.g. "Pasted" or a file name. */
+  origin: string
+  body: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type SourceInput = {
+  subjectId: string | null
+  title: string
+  origin: string
+  body: string
+}
+
+/** A material item an answer leaned on, numbered as the model saw it. */
+export type Citation = {
+  index: number
+  sourceId: string
+  sourceTitle: string
+}
+
+export type LibraryMessage = {
+  id: string
+  subjectId: string | null
+  role: 'student' | 'assistant'
+  body: string
+  citations: Citation[]
+  createdAt: number
+}
+
+export type LibrarySearchHit = {
+  sourceId: string
+  sourceTitle: string
+  snippet: string
+}
+
 export type AiState = {
   enabled: boolean
   remaining: number
@@ -126,6 +167,10 @@ export type WorkspaceData = {
   notes: Note[]
   /** NCERT chapters the student has ticked off. */
   syllabus: SyllabusTick[]
+  /** Material the student added to the library. */
+  sources: Source[]
+  /** Saved questions and answers about that material. */
+  library: LibraryMessage[]
   profile: Profile | null
   ai: AiState
 }

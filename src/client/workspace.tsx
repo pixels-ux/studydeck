@@ -9,8 +9,11 @@ import {
 import type {
   Entry,
   EntryInput,
+  LibraryMessage,
   Note,
   NoteInput,
+  Source,
+  SourceInput,
   Subject,
   SubjectInput,
   SetupPayload,
@@ -32,6 +35,12 @@ export type Workspace = {
   deleteTask: (id: string) => Promise<void>
   saveNote: (input: NoteInput, id?: string) => Promise<Note>
   deleteNote: (id: string) => Promise<void>
+  saveSource: (input: SourceInput, id?: string) => Promise<Source>
+  deleteSource: (id: string) => Promise<void>
+  /** A note the server made for the student, e.g. a library transformation. */
+  adoptNote: (note: Note) => void
+  appendLibrary: (messages: LibraryMessage[]) => void
+  clearLibrary: (subjectId: string | null) => Promise<void>
   applySetup: (payload: SetupPayload) => Promise<void>
   setAiRemaining: (remaining: number) => void
 }
@@ -82,6 +91,12 @@ export function WorkspaceProvider({
       ),
       notes: current.notes.map((note) =>
         note.subjectId === id ? { ...note, subjectId: null } : note,
+      ),
+      sources: current.sources.map((source) =>
+        source.subjectId === id ? { ...source, subjectId: null } : source,
+      ),
+      library: current.library.map((message) =>
+        message.subjectId === id ? { ...message, subjectId: null } : message,
       ),
       syllabus: current.syllabus.filter((tick) => tick.subjectId !== id),
     }))
@@ -187,6 +202,55 @@ export function WorkspaceProvider({
     }))
   }, [])
 
+  const saveSource = useCallback(async (input: SourceInput, id?: string) => {
+    const result = await api<{ source: Source }>(
+      id ? `/api/sources/${id}` : '/api/sources',
+      { method: id ? 'PATCH' : 'POST', body: input },
+    )
+    setData((current) => {
+      const others = current.sources.filter(
+        (source) => source.id !== result.source.id,
+      )
+      return { ...current, sources: [result.source, ...others] }
+    })
+    return result.source
+  }, [])
+
+  const deleteSource = useCallback(async (id: string) => {
+    await api<{ ok: boolean }>(`/api/sources/${id}`, { method: 'DELETE' })
+    setData((current) => ({
+      ...current,
+      sources: current.sources.filter((source) => source.id !== id),
+    }))
+  }, [])
+
+  const adoptNote = useCallback((note: Note) => {
+    setData((current) => ({
+      ...current,
+      notes: [note, ...current.notes.filter((item) => item.id !== note.id)],
+    }))
+  }, [])
+
+  const appendLibrary = useCallback((messages: LibraryMessage[]) => {
+    setData((current) => ({
+      ...current,
+      library: [...current.library, ...messages],
+    }))
+  }, [])
+
+  const clearLibrary = useCallback(async (subjectId: string | null) => {
+    const query = subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : ''
+    await api<{ ok: boolean }>(`/api/library/messages${query}`, {
+      method: 'DELETE',
+    })
+    setData((current) => ({
+      ...current,
+      library: current.library.filter(
+        (message) => message.subjectId !== subjectId,
+      ),
+    }))
+  }, [])
+
   const applySetup = useCallback(async (payload: SetupPayload) => {
     const result = await api<WorkspaceData>('/api/setup', {
       method: 'POST',
@@ -215,6 +279,11 @@ export function WorkspaceProvider({
       deleteTask,
       saveNote,
       deleteNote,
+      saveSource,
+      deleteSource,
+      adoptNote,
+      appendLibrary,
+      clearLibrary,
       applySetup,
       setAiRemaining,
     }),
@@ -230,6 +299,11 @@ export function WorkspaceProvider({
       deleteTask,
       saveNote,
       deleteNote,
+      saveSource,
+      deleteSource,
+      adoptNote,
+      appendLibrary,
+      clearLibrary,
       applySetup,
       setAiRemaining,
     ],

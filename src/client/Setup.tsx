@@ -3,7 +3,6 @@ import { CLASS_LEVELS, curriculumFor } from '../shared/curriculum'
 import { api } from './api'
 import {
   DAY_LONG,
-  fmtDuration,
   fmtTime,
   parseTimeValue,
   toTimeValue,
@@ -11,6 +10,11 @@ import {
 } from './dates'
 import { buildSchoolTimetable } from './schoolTimetable'
 import { buildSetupPayload, subjectKeys } from './setupPayload'
+import {
+  formatTimetable,
+  parseTimetable,
+  TIMETABLE_HINT,
+} from './timetableText'
 import { useWorkspace } from './workspace'
 
 type Test = { id: string; name: string; date: string; subjects: string[] }
@@ -33,13 +37,42 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
   const [days, setDays] = useState<number[]>(
     existing?.schoolDays ?? [0, 1, 2, 3, 4, 5],
   )
-  const [schoolStart, setSchoolStart] = useState(
-    toTimeValue(existing?.schoolStart ?? 8 * 60),
+  // The timetable is what the student already has, so an existing copy is the
+  // starting point; a new student types it (or fills a typical week and edits).
+  const [timetableText, setTimetableText] = useState(() => {
+    const day = existing?.schoolDays[0] ?? 0
+    return formatTimetable(
+      data.entries
+        .filter(
+          (entry) =>
+            entry.plan === 'regular' &&
+            entry.day === day &&
+            entry.kind === 'class' &&
+            entry.title !== 'Coaching',
+        )
+        .map((entry) => ({
+          startMin: entry.startMin,
+          endMin: entry.endMin,
+          subjectName: entry.title,
+        })),
+    )
+  })
+  const existingCoaching = data.entries.find(
+    (entry) => entry.plan === 'regular' && entry.title === 'Coaching',
   )
-  const [schoolEnd, setSchoolEnd] = useState(
-    toTimeValue(existing?.schoolEnd ?? 14 * 60 + 30),
+  const [coachingOn, setCoachingOn] = useState(Boolean(existingCoaching))
+  const [coachingDays, setCoachingDays] = useState<number[]>(() => {
+    const found = data.entries
+      .filter((entry) => entry.plan === 'regular' && entry.title === 'Coaching')
+      .map((entry) => entry.day)
+    return found.length ? [...new Set(found)].sort((a, b) => a - b) : [0, 1, 2, 3, 4]
+  })
+  const [coachingStart, setCoachingStart] = useState(
+    toTimeValue(existingCoaching?.startMin ?? 16 * 60),
   )
-  const [periodLength, setPeriodLength] = useState(existing?.periodLength ?? 45)
+  const [coachingEnd, setCoachingEnd] = useState(
+    toTimeValue(existingCoaching?.endMin ?? 17 * 60 + 30),
+  )
   const [studyHours, setStudyHours] = useState(existing?.studyHours ?? 3)
   const [tests, setTests] = useState<Test[]>([
     { id: crypto.randomUUID(), name: 'Unit test', date: '', subjects: [] },
@@ -76,24 +109,32 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
     return names
   }, [curriculum, chosen])
 
-  const start = parseTimeValue(schoolStart)
-  const end = parseTimeValue(schoolEnd)
-  // The same keys are used for the preview and the saved payload, so the
-  // generated blocks can be submitted unchanged.
+  const parsed = useMemo(() => parseTimetable(timetableText), [timetableText])
+  const coachingStartMin = parseTimeValue(coachingStart)
+  const coachingEndMin = parseTimeValue(coachingEnd)
   const keys = useMemo(() => subjectKeys(chosen), [chosen])
-  const school = useMemo(
-    () =>
-      buildSchoolTimetable({
-        subjects: chosen.map((name, index) => ({ key: keys[index]!, name })),
-        days,
-        start,
-        end,
-        periodLength,
-        breakAfter: 4,
-        breakLength: 30,
-      }),
-    [chosen, keys, days, start, end, periodLength],
-  )
+
+  /** A starting point to edit, not a timetable the app invents for them. */
+  function fillTypicalWeek() {
+    const generated = buildSchoolTimetable({
+      subjects: chosen.map((name, index) => ({ key: keys[index]!, name })),
+      days: days.length ? days : [0, 1, 2, 3, 4],
+      start: 8 * 60,
+      end: 14 * 60 + 30,
+      periodLength: 45,
+      breakAfter: 4,
+      breakLength: 30,
+    })
+    const firstDay = days.length ? Math.min(...days) : 0
+    const periods = generated.entries
+      .filter((entry) => entry.day === firstDay && entry.kind === 'class')
+      .map((entry) => ({
+        startMin: entry.startMin,
+        endMin: entry.endMin,
+        subjectName: entry.title,
+      }))
+    setTimetableText(formatTimetable(periods))
+  }
 
   function pickClass(level: number) {
     setError('')
@@ -158,8 +199,34 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
       setStep(1)
       return
     }
-    if (end <= start) {
-      setError('The school day must finish after it starts.')
+    if (parsed.errors.length) {
+      setError(parsed.errors[0]!)
+      setStep(1)
+      return
+    }
+    if (!parsed.periods.length) {
+      setError('Write at least one period of your school timetable.')
+      setStep(1)
+      return
+    }
+    const unknown = parsed.periods.find(
+      (period) =>
+        !chosen.some(
+          (name) => name.toLowerCase() === period.subjectName.toLowerCase(),
+        ),
+    )
+    if (unknown) {
+      setError(
+        `“${unknown.subjectName}” is not one of your subjects. Add it above, or fix that line of the timetable.`,
+      )
+      setStep(0)
+      return
+    }
+    if (
+      coachingOn &&
+      (!coachingDays.length || coachingEndMin <= coachingStartMin)
+    ) {
+      setError('Choose the coaching days, and a finish time after the start.')
       setStep(1)
       return
     }
@@ -171,9 +238,14 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
           classLevel,
           subjectNames: chosen,
           days,
-          start,
-          end,
-          periodLength,
+          periods: parsed.periods,
+          coaching: coachingOn
+            ? {
+                days: coachingDays,
+                startMin: coachingStartMin,
+                endMin: coachingEndMin,
+              }
+            : null,
           studyHours,
           tests: tests.map((test) => ({
             date: test.date,
@@ -282,8 +354,11 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
       {step === 1 ? (
         <section className="card">
           <div className="card-head">
-            <h3>Your school day</h3>
-            <span className="count">{school.periods} periods</span>
+            <h3>Your school timetable</h3>
+            <span className="count">
+              {parsed.periods.length} period
+              {parsed.periods.length === 1 ? '' : 's'}
+            </span>
           </div>
           <div className="form-group">
             <span className="field-label">Days you have school</span>
@@ -300,55 +375,102 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
               ))}
             </div>
           </div>
-          <div className="form-row">
-            <label className="field">
-              <span>School starts</span>
-              <input
-                type="time"
-                value={schoolStart}
-                onChange={(event) => setSchoolStart(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>School ends</span>
-              <input
-                type="time"
-                value={schoolEnd}
-                onChange={(event) => setSchoolEnd(event.target.value)}
-              />
-            </label>
-          </div>
-          <div className="form-row">
-            <label className="field">
-              <span>Period length</span>
-              <select
-                value={periodLength}
-                onChange={(event) => setPeriodLength(Number(event.target.value))}
-              >
-                {[30, 35, 40, 45, 50, 55, 60].map((value) => (
-                  <option key={value} value={value}>
-                    {value} minutes
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Study hours outside school</span>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                step={0.5}
-                value={studyHours}
-                onChange={(event) => setStudyHours(Number(event.target.value))}
-              />
-            </label>
+          <label className="field">
+            <span>Your school timetable</span>
+            <textarea
+              className="timetable-text"
+              value={timetableText}
+              spellCheck={false}
+              placeholder={'08:00-08:45 Mathematics\n08:45-09:30 Science'}
+              onChange={(event) => setTimetableText(event.target.value)}
+            />
+          </label>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={fillTypicalWeek}
+            >
+              Fill a typical week for me
+            </button>
           </div>
           <p className="fineprint">
-            {school.periods > 0
-              ? `${school.periods} periods of ${periodLength} minutes and a 30-minute break after period 4, ${fmtDuration(end - start)} at school.`
-              : 'Check the school hours.'}
+            {TIMETABLE_HINT} It is repeated on every school day you picked, and
+            you can change a single day later in Timetable.
           </p>
+          {parsed.errors.length ? (
+            <ul className="error small">
+              {parsed.errors.slice(0, 4).map((message) => (
+                <li key={message}>{message}</li>
+              ))}
+            </ul>
+          ) : null}
+
+          <div className="day-section">
+            <label className="inline-check">
+              <input
+                type="checkbox"
+                checked={coachingOn}
+                onChange={(event) => setCoachingOn(event.target.checked)}
+              />
+              I go to coaching
+            </label>
+            {coachingOn ? (
+              <>
+                <div className="form-row">
+                  <label className="field">
+                    <span>Coaching starts</span>
+                    <input
+                      type="time"
+                      value={coachingStart}
+                      onChange={(event) => setCoachingStart(event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Coaching ends</span>
+                    <input
+                      type="time"
+                      value={coachingEnd}
+                      onChange={(event) => setCoachingEnd(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="form-group">
+                  <span className="field-label">Coaching days</span>
+                  <div className="day-chips">
+                    {DAY_LONG.map((label, index) => (
+                      <button
+                        key={label}
+                        type="button"
+                        className={coachingDays.includes(index) ? 'tag active' : 'tag'}
+                        onClick={() =>
+                          setCoachingDays((current) =>
+                            current.includes(index)
+                              ? current.filter((day) => day !== index)
+                              : [...current, index].sort((a, b) => a - b),
+                          )
+                        }
+                      >
+                        {label.slice(0, 3)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
+
+          <label className="field">
+            <span>Study hours outside school</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              step={0.5}
+              value={studyHours}
+              onChange={(event) => setStudyHours(Number(event.target.value))}
+            />
+          </label>
         </section>
       ) : null}
 
@@ -430,7 +552,7 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
           <div className="card-head">
             <h3>Here’s your week</h3>
             <span className="count">
-              {school.periods} periods × {days.length} days
+              {parsed.periods.length} periods × {days.length} days
             </span>
           </div>
           <ul className="summary">
@@ -438,13 +560,20 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
               <strong>Class {classLevel}</strong> · {chosen.join(', ')}
             </li>
             <li>
-              School {fmtTime(start)}–{fmtTime(end)}, {periodLength}-minute periods
-              on {days.map((day) => DAY_LONG[day]!.slice(0, 3)).join(', ')}
+              {parsed.periods.length} school period
+              {parsed.periods.length === 1 ? '' : 's'} on{' '}
+              {days.map((day) => DAY_LONG[day]!.slice(0, 3)).join(', ')}
+              {coachingOn
+                ? `, then coaching ${fmtTime(coachingStartMin)}–${fmtTime(coachingEndMin)} on ${
+                    coachingDays.map((day) => DAY_LONG[day]!.slice(0, 3)).join(', ') ||
+                    'no days yet'
+                  }`
+                : ''}
             </li>
             <li>
-              {school.periods > 0
-                ? `${school.periods * days.length} class periods generated, plus a daily break.`
-                : 'No periods yet. Go back and set your school hours.'}
+              {parsed.periods.length
+                ? `${parsed.periods.length * days.length} school periods${coachingOn ? ' plus coaching' : ''} go on the timetable.`
+                : 'No periods yet. Go back and write your timetable.'}
             </li>
             <li>
               {examCount

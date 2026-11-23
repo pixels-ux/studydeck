@@ -445,9 +445,16 @@ test('the wizard payload saves in one call because every entry uses a subject ke
     classLevel: 10,
     subjectNames: ['Mathematics', 'Science', 'Social Science'],
     days: [0, 1, 2, 3, 4],
-    start: 480,
-    end: 870,
-    periodLength: 45,
+    periods: [
+      { startMin: 480, endMin: 525, subjectName: 'Mathematics' },
+      { startMin: 530, endMin: 575, subjectName: 'Science' },
+      { startMin: 580, endMin: 625, subjectName: 'Social Science' },
+      { startMin: 630, endMin: 675, subjectName: 'Mathematics' },
+      { startMin: 680, endMin: 725, subjectName: 'Science' },
+      { startMin: 730, endMin: 775, subjectName: 'Social Science' },
+      { startMin: 780, endMin: 825, subjectName: 'Mathematics' },
+    ],
+    coaching: { days: [1, 3], startMin: 960, endMin: 1050 },
     studyHours: 3,
     tests: [
       { date: '2026-11-22', subjects: ['Social Science'] },
@@ -460,13 +467,14 @@ test('the wizard payload saves in one call because every entry uses a subject ke
   const keys = new Set(payload.subjects.map((subject) => subject.key))
   expect(keys).toEqual(new Set(['s0', 's1', 's2']))
   for (const entry of [...payload.regular, ...payload.revision]) {
-    if (entry.kind === 'break') expect(entry.subjectId).toBeNull()
+    if (entry.kind === 'break' || entry.title === 'Coaching')
+      expect(entry.subjectId).toBeNull()
     else expect(keys.has(entry.subjectId!)).toBe(true)
   }
   expect(payload.subjects.find((s) => s.name === 'Social Science')?.examDate).toBe(
     '2026-11-22',
   )
-  expect(payload.regular.filter((entry) => entry.kind === 'class')).toHaveLength(35)
+  expect(payload.regular.filter((entry) => entry.kind === 'class')).toHaveLength(37)
   expect(payload.revision.length).toBeGreaterThan(0)
 
   const response = await call('/api/setup', 'POST', payload)

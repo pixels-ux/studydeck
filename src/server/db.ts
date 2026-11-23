@@ -1,5 +1,9 @@
 import type {
   Citation,
+  DayCoaching,
+  DayCovered,
+  DayHomework,
+  DayLog,
   Entry,
   EntryKind,
   LibraryMessage,
@@ -95,6 +99,18 @@ const schema = [
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS library_messages_owner ON library_messages(owner_sub, subject_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS day_logs (
+    owner_sub TEXT NOT NULL,
+    date TEXT NOT NULL,
+    school TEXT NOT NULL DEFAULT '[]',
+    coaching TEXT NOT NULL DEFAULT 'null',
+    homework TEXT NOT NULL DEFAULT '[]',
+    free_from INTEGER NOT NULL,
+    free_until INTEGER NOT NULL,
+    brief TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (owner_sub, date)
+  )`,
   `CREATE TABLE IF NOT EXISTS syllabus_progress (
     owner_sub TEXT NOT NULL,
     subject_id TEXT NOT NULL,
@@ -274,6 +290,90 @@ export const mapLibraryMessage = (row: LibraryMessageRow): LibraryMessage => ({
   citations: readCitations(row.citations),
   createdAt: row.created_at,
 })
+
+export type DayLogRow = {
+  date: string
+  school: string
+  coaching: string
+  homework: string
+  free_from: number
+  free_until: number
+  brief: string
+  updated_at: number
+}
+
+const json = (raw: string): unknown => {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+const text = (value: unknown, max: number): string =>
+  typeof value === 'string' ? value.slice(0, max) : ''
+
+/** A damaged or hand-edited row loads as an empty day, never a crash. */
+export function mapDayLog(row: DayLogRow): DayLog {
+  const schoolRaw = json(row.school)
+  const school: DayCovered[] = Array.isArray(schoolRaw)
+    ? schoolRaw.flatMap((item) => {
+        if (!item || typeof item !== 'object') return []
+        const record = item as Record<string, unknown>
+        return [
+          {
+            subjectId:
+              typeof record.subjectId === 'string' ? record.subjectId : null,
+            title: text(record.title, 80),
+            topic: text(record.topic, 300),
+          },
+        ]
+      })
+    : []
+
+  const coachingRaw = json(row.coaching)
+  let coaching: DayCoaching | null = null
+  if (coachingRaw && typeof coachingRaw === 'object') {
+    const record = coachingRaw as Record<string, unknown>
+    coaching = {
+      attending: record.attending === true,
+      startMin:
+        typeof record.startMin === 'number' ? record.startMin : 0,
+      endMin: typeof record.endMin === 'number' ? record.endMin : 0,
+      topic: text(record.topic, 300),
+    }
+  }
+
+  const homeworkRaw = json(row.homework)
+  const homework: DayHomework[] = Array.isArray(homeworkRaw)
+    ? homeworkRaw.flatMap((item) => {
+        if (!item || typeof item !== 'object') return []
+        const record = item as Record<string, unknown>
+        return [
+          {
+            id: text(record.id, 64) || crypto.randomUUID(),
+            subjectId:
+              typeof record.subjectId === 'string' ? record.subjectId : null,
+            source: record.source === 'coaching' ? 'coaching' : 'school',
+            title: text(record.title, 120),
+            minutes:
+              typeof record.minutes === 'number' ? record.minutes : 0,
+          },
+        ]
+      })
+    : []
+
+  return {
+    date: row.date,
+    school,
+    coaching,
+    homework,
+    freeFrom: row.free_from,
+    freeUntil: row.free_until,
+    brief: row.brief,
+    updatedAt: row.updated_at,
+  }
+}
 
 export type ProfileRow = {
   class_level: number

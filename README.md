@@ -36,10 +36,15 @@ bun start         # http://localhost:3000
 
 ## What it does
 
-- **Class setup** — your class, subjects and colours, school hours and period
-  length, test dates, and how many hours you can study. A weekly timetable and
-  an intensive revision plan are generated from that.
-- **Today** — the classes you have, the work that is due and the exams coming up.
+- **Class setup** — your class, subjects and colours, your school timetable
+  (type it period by period), optional coaching days, test dates, and how many
+  hours you can study. A weekly timetable and an intensive revision plan are
+  built from that.
+- **Today** — a check-in for the day just taught, tonight's plan, the classes
+  you have, the work that is due and the exams coming up.
+- **Your day** — say what was actually covered in school and at coaching, what
+  homework was set and how much, then get an evening plan with breaks sized to
+  the backlog. An AI brief comments on it if a key is connected.
 - **Timetable** — your week as a grid with rooms, teachers and subject colours,
   plus the revision plan. Study sessions never land on a school class, and the
   nearest exam gets the most time.
@@ -75,6 +80,34 @@ any other app.
 There is no login: the app trusts whoever can open <http://localhost:3000>. It
 binds to all interfaces by default so it works in a container; on a shared
 machine use `HOST=127.0.0.1 bun start` to keep it loopback-only.
+
+## Your day
+
+**Check in your day** sits at the top of Today and takes four short steps:
+
+1. **School** — today's periods from your timetable, each with the topic that
+   was taught. **No school today** clears them. A topic becomes a 20-minute
+   review block in the evening.
+2. **Coaching** — whether you went, the start and end time, and what was done
+   there.
+3. **Homework** — tasks for school and for coaching separately, each with the
+   minutes it will take, and a **No school homework** / **No coaching homework**
+   button when nothing was set. Homework is split into blocks of at most 45
+   minutes, and a subject is never left with a five-minute scrap.
+4. **Tonight** — when you are free and when you stop. Studydeck lays out the
+   evening: reviews first, then homework, then whatever time is left goes to the
+   subjects furthest behind.
+
+Breaks are not fixed. They start at 10 minutes and grow when there is overdue
+work, a lot of un-ticked chapters, 90 minutes or more of homework, or several
+new topics in one day, up to 20 minutes. If homework does not fit the window it
+is reported instead of being squeezed in.
+
+**Save and build tonight's plan** stores the check-in and replaces only today's
+blocks in the timetable; other days are untouched. With an AI key, **Ask AI
+about today** adds a short brief: what to start with, what deserves ten minutes
+of review, one honest note about the backlog, and two questions to check your own
+understanding. The check-in and brief are included in the workspace reset.
 
 ## Library
 

@@ -112,6 +112,45 @@ export type LibraryMessage = {
   createdAt: number
 }
 
+export type HomeworkSource = 'school' | 'coaching'
+
+/** One homework item the student names, with how much work it is. */
+export type DayHomework = {
+  id: string
+  subjectId: string | null
+  source: HomeworkSource
+  title: string
+  /** Estimated minutes. 0 means "nothing assigned". */
+  minutes: number
+}
+
+/** What one school period covered that day. */
+export type DayCovered = {
+  subjectId: string | null
+  title: string
+  topic: string
+}
+
+export type DayCoaching = {
+  attending: boolean
+  startMin: number
+  endMin: number
+  topic: string
+}
+
+/** One day's check-in: what was taught, homework, and the evening window. */
+export type DayLog = {
+  date: string
+  school: DayCovered[]
+  coaching: DayCoaching | null
+  homework: DayHomework[]
+  freeFrom: number
+  freeUntil: number
+  /** The AI's comment on the day, empty until it is asked for. */
+  brief: string
+  updatedAt: number
+}
+
 export type LibrarySearchHit = {
   sourceId: string
   sourceTitle: string

@@ -30,6 +30,8 @@ export type Workspace = {
   saveEntry: (input: EntryInput, id?: string) => Promise<Entry>
   deleteEntry: (id: string) => Promise<void>
   replacePlan: (entries: EntryInput[]) => Promise<number>
+  /** Replaces only one day's evening plan, from the day check-in. */
+  replaceDayPlan: (date: string, entries: EntryInput[]) => Promise<Entry[]>
   toggleChapter: (subjectId: string, chapter: string, done: boolean) => Promise<void>
   saveTask: (input: TaskInput, id?: string) => Promise<Task>
   deleteTask: (id: string) => Promise<void>
@@ -160,6 +162,26 @@ export function WorkspaceProvider({
     return result.entries.length
   }, [])
 
+  const replaceDayPlan = useCallback(
+    async (date: string, entries: EntryInput[]) => {
+      const result = await api<{ entries: Entry[] }>('/api/entries/day', {
+        method: 'POST',
+        body: { date, entries },
+      })
+      setData((current) => ({
+        ...current,
+        entries: [
+          ...current.entries.filter(
+            (entry) => !(entry.plan === 'intensive' && entry.date === date),
+          ),
+          ...result.entries,
+        ],
+      }))
+      return result.entries
+    },
+    [],
+  )
+
   const saveTask = useCallback(async (input: TaskInput, id?: string) => {
     const result = await api<{ task: Task }>(
       id ? `/api/tasks/${id}` : '/api/tasks',
@@ -274,6 +296,7 @@ export function WorkspaceProvider({
       saveEntry,
       deleteEntry,
       replacePlan,
+      replaceDayPlan,
       toggleChapter,
       saveTask,
       deleteTask,
@@ -294,6 +317,7 @@ export function WorkspaceProvider({
       saveEntry,
       deleteEntry,
       replacePlan,
+      replaceDayPlan,
       toggleChapter,
       saveTask,
       deleteTask,

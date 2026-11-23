@@ -1,36 +1,49 @@
 import { curriculumFor } from '../shared/curriculum'
-import type { Entry, SetupPayload, Subject } from '../shared/types'
+import type { Entry, EntryInput, SetupPayload, Subject } from '../shared/types'
 import { buildRevisionPlan } from './plan'
-import { buildSchoolTimetable, examDatesFromTests } from './schoolTimetable'
+import { examDatesFromTests } from './schoolTimetable'
+import type { TimetablePeriod } from './timetableText'
+
+export type CoachingDraft = {
+  days: number[]
+  startMin: number
+  endMin: number
+}
 
 export type SetupDraft = {
   classLevel: number
   /** Chosen subjects, in the order the student picked them. */
   subjectNames: string[]
   days: number[]
-  /** Minutes from midnight. */
-  start: number
-  end: number
-  periodLength: number
+  /** The student's real school timetable, one period per line in the wizard. */
+  periods: TimetablePeriod[]
+  coaching: CoachingDraft | null
   studyHours: number
   tests: { date: string; subjects: string[] }[]
   /** First revision day, YYYY-MM-DD. */
   from: string
 }
 
-const BREAK_AFTER = 4
-const BREAK_LENGTH = 30
-
 /** Subject keys only exist inside a setup payload; the API resolves them on save. */
 export const subjectKeys = (names: string[]) => names.map((_, index) => `s${index}`)
 
+/** Longest period, used for the profile fields the timetable is built from. */
+function typicalPeriod(periods: TimetablePeriod[]): number {
+  if (!periods.length) return 45
+  const lengths = periods.map((period) => period.endMin - period.startMin)
+  return Math.round(lengths.reduce((sum, value) => sum + value, 0) / lengths.length)
+}
+
 /**
- * Turns the wizard's answers into the payload `/api/setup` stores. It builds
- * the timetable itself, so every entry is keyed by `SetupSubject.key` and can
- * never drift onto a subject name.
+ * Turns the wizard's answers into the payload `/api/setup` stores. The school
+ * blocks are exactly the timetable the student typed, repeated on each school
+ * day, plus their coaching days. Nothing is guessed from a start and end time.
  */
 export function buildSetupPayload(draft: SetupDraft): SetupPayload {
   const keys = subjectKeys(draft.subjectNames)
+  const keyByName = new Map(
+    draft.subjectNames.map((name, index) => [name.toLowerCase(), keys[index]!]),
+  )
   const named = draft.subjectNames.map((name, index) => ({
     key: keys[index]!,
     name,
@@ -50,15 +63,37 @@ export function buildSetupPayload(draft: SetupDraft): SetupPayload {
     examDate: examDates[key] ?? '',
   }))
 
-  const school = buildSchoolTimetable({
-    subjects: named,
-    days: draft.days,
-    start: draft.start,
-    end: draft.end,
-    periodLength: draft.periodLength,
-    breakAfter: BREAK_AFTER,
-    breakLength: BREAK_LENGTH,
-  })
+  const regular: EntryInput[] = []
+  for (const day of [...draft.days].sort((a, b) => a - b)) {
+    for (const period of draft.periods) {
+      const key = keyByName.get(period.subjectName.toLowerCase())
+      if (!key) continue
+      regular.push({
+        subjectId: key,
+        title: period.subjectName,
+        kind: 'class',
+        plan: 'regular',
+        day,
+        startMin: period.startMin,
+        endMin: period.endMin,
+        room: '',
+        date: '',
+      })
+    }
+    if (draft.coaching && draft.coaching.days.includes(day)) {
+      regular.push({
+        subjectId: null,
+        title: 'Coaching',
+        kind: 'class',
+        plan: 'regular',
+        day,
+        startMin: draft.coaching.startMin,
+        endMin: draft.coaching.endMin,
+        room: '',
+        date: '',
+      })
+    }
+  }
 
   const planSubjects: Subject[] = subjects.map((subject, index) => ({
     id: subject.key,
@@ -68,7 +103,7 @@ export function buildSetupPayload(draft: SetupDraft): SetupPayload {
     examDate: subject.examDate,
     createdAt: index,
   }))
-  const planEntries: Entry[] = school.entries.map((entry, index) => ({
+  const planEntries: Entry[] = regular.map((entry, index) => ({
     ...entry,
     id: `r${index}`,
   }))
@@ -80,15 +115,20 @@ export function buildSetupPayload(draft: SetupDraft): SetupPayload {
     includeWeekends: true,
   })
 
+  const starts = draft.periods.map((period) => period.startMin)
+  const ends = draft.periods.map((period) => period.endMin)
+  const schoolStart = starts.length ? Math.min(...starts) : 8 * 60
+  const schoolEnd = ends.length ? Math.max(...ends) : 14 * 60 + 30
+
   return {
     classLevel: draft.classLevel,
     schoolDays: draft.days,
-    schoolStart: draft.start,
-    schoolEnd: draft.end,
-    periodLength: draft.periodLength,
+    schoolStart,
+    schoolEnd,
+    periodLength: typicalPeriod(draft.periods),
     studyHours: draft.studyHours,
     subjects,
-    regular: school.entries,
+    regular,
     revision: revision.entries,
   }
 }

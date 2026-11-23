@@ -201,6 +201,71 @@ export function practiceQuestions(
   )
 }
 
+export type DayBriefInput = {
+  school: { title: string; topic: string }[]
+  coaching: { attending: boolean; topic: string } | null
+  homework: { title: string; minutes: number }[]
+  planned: { title: string; minutes: number }[]
+  backlog: {
+    overdueTasks: number
+    chaptersLeft: number
+    nearestExamInDays: number | null
+  }
+}
+
+/**
+ * The end-of-day brief: it sees what was taught, what was set and what the
+ * evening plan already contains, so its advice is about this evening rather
+ * than study in general.
+ */
+export function dayBrief(
+  provider: Provider,
+  day: DayBriefInput,
+  context = '',
+): Promise<string> {
+  const school = day.school.length
+    ? day.school
+        .map((item) => `- ${item.title}: ${item.topic || 'no topic written down'}`)
+        .join('\n')
+    : '- No school today'
+  const coaching = day.coaching
+    ? day.coaching.attending
+      ? `- Attended: ${day.coaching.topic || 'no topic written down'}`
+      : '- Did not go'
+    : '- No coaching set up'
+  const homework = day.homework.length
+    ? day.homework
+        .map((item) => `- ${item.title} (${item.minutes} min)`)
+        .join('\n')
+    : '- No homework named'
+  const planned = day.planned.length
+    ? day.planned
+        .map((item) => `- ${item.title} (${item.minutes} min)`)
+        .join('\n')
+    : '- Nothing planned yet'
+  const backlog = `${day.backlog.overdueTasks} overdue task(s), ${day.backlog.chaptersLeft} chapters not yet ticked${
+    day.backlog.nearestExamInDays === null
+      ? ', no exam date set'
+      : `, nearest exam in ${day.backlog.nearestExamInDays} day(s)`
+  }`
+
+  return complete(
+    provider,
+    [
+      { role: 'system', content: systemPrompt(context) },
+      {
+        role: 'user',
+        content:
+          `Write tonight’s brief for this study day. Use 3 to 5 short "- " bullets: what to start with and why, which topic from today deserves ten minutes of review, and one honest note about the backlog or the nearest exam. ` +
+          `Then a final line "Worth checking:" followed by two short questions the student should ask themselves about what they did not fully understand today. ` +
+          `Do not repeat the plan block by block, and do not invent topics.\n\n` +
+          `School:\n${school}\n\nCoaching:\n${coaching}\n\nHomework:\n${homework}\n\nEvening plan:\n${planned}\n\nBacklog: ${backlog}`,
+      },
+    ],
+    600,
+  )
+}
+
 export async function usedAi(
   db: SqlDatabase,
   owner: string,

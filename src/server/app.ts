@@ -1,7 +1,10 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
-import { syllabusBrief } from '../shared/curriculum.ts'
+import { syllabusBrief, unitsFor } from '../shared/curriculum.ts'
 import type {
+  DayCovered,
+  DayHomework,
+  DayLog,
   EntryKind,
   EntryInput,
   NoteInput,
@@ -16,6 +19,7 @@ import {
   AI_DAILY_LIMIT,
   answerFromMaterial,
   askNotes,
+  dayBrief,
   consumeAi,
   practiceQuestions,
   summariseNotes,
@@ -30,6 +34,7 @@ import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './provid
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
   ensureSchema,
+  mapDayLog,
   mapEntry,
   mapLibraryMessage,
   mapNote,
@@ -38,6 +43,7 @@ import {
   mapSubject,
   mapTask,
   readProfile,
+  type DayLogRow,
   type EntryRow,
   type LibraryMessageRow,
   type NoteRow,
@@ -216,6 +222,83 @@ function parseSource(body: Record<string, unknown>): SourceInput | null {
   }
 }
 
+/** A day's check-in: what was taught, homework, and the evening window. */
+function parseDayLog(
+  body: Record<string, unknown>,
+): Omit<DayLog, 'updatedAt'> | null {
+  const date = clean(body.date, 10)
+  if (!DATE_PATTERN.test(date)) return null
+  const freeFrom = whole(body.freeFrom, 0, 1439)
+  const freeUntil = whole(body.freeUntil, 1, 1440)
+  if (freeFrom === null || freeUntil === null || freeUntil <= freeFrom)
+    return null
+
+  const schoolList = Array.isArray(body.school) ? body.school : null
+  const homeworkList = Array.isArray(body.homework) ? body.homework : null
+  if (
+    !schoolList ||
+    schoolList.length > 20 ||
+    !homeworkList ||
+    homeworkList.length > 40
+  )
+    return null
+
+  const school: DayCovered[] = []
+  for (const item of schoolList) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const record = item as Record<string, unknown>
+    const subjectId = optionalIdentifier(record.subjectId)
+    const title = clean(record.title, 80)
+    if (subjectId === undefined || !title) return null
+    school.push({ subjectId, title, topic: clean(record.topic, 300) })
+  }
+
+  const homework: DayHomework[] = []
+  for (const item of homeworkList) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const record = item as Record<string, unknown>
+    const subjectId = optionalIdentifier(record.subjectId)
+    const minutes = whole(record.minutes, 0, 600)
+    const title = clean(record.title, 120)
+    if (subjectId === undefined || minutes === null || !title) return null
+    homework.push({
+      id: identifier(record.id) ?? crypto.randomUUID(),
+      subjectId,
+      source: record.source === 'coaching' ? 'coaching' : 'school',
+      title,
+      minutes,
+    })
+  }
+
+  let coaching: DayLog['coaching'] = null
+  if (
+    body.coaching &&
+    typeof body.coaching === 'object' &&
+    !Array.isArray(body.coaching)
+  ) {
+    const record = body.coaching as Record<string, unknown>
+    const startMin = whole(record.startMin, 0, 1439)
+    const endMin = whole(record.endMin, 1, 1440)
+    if (startMin === null || endMin === null || endMin <= startMin) return null
+    coaching = {
+      attending: record.attending === true,
+      startMin,
+      endMin,
+      topic: clean(record.topic, 300),
+    }
+  }
+
+  return {
+    date,
+    school,
+    coaching,
+    homework,
+    freeFrom,
+    freeUntil,
+    brief: clean(body.brief, 4000),
+  }
+}
+
 const entryColumns =
   'id, subject_id, title, kind, day, start_min, end_min, room, plan, date'
 const taskColumns =
@@ -225,6 +308,8 @@ const sourceColumns =
   'id, subject_id, title, origin, body, created_at, updated_at'
 const messageColumns =
   'id, subject_id, role, body, citations, created_at'
+const dayLogColumns =
+  'date, school, coaching, homework, free_from, free_until, brief, updated_at'
 const TRANSFORMS = ['summary', 'questions'] as const
 type Transform = (typeof TRANSFORMS)[number]
 
@@ -419,6 +504,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       db.prepare('DELETE FROM entries WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM tasks WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM study_notes WHERE owner_sub = ?').bind(owner),
+      db.prepare('DELETE FROM day_logs WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM sources WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM library_messages WHERE owner_sub = ?').bind(owner),
       db.prepare('DELETE FROM syllabus_progress WHERE owner_sub = ?').bind(owner),
@@ -1225,6 +1311,240 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         )
         .first<NoteRow>()
       return c.json({ note: mapNote(note!), remaining: quota.remaining })
+    } catch (error) {
+      return c.json(
+        { error: error instanceof AiError ? error.message : AI_FAILED },
+        502,
+      )
+    }
+  })
+
+  /* The day: what was taught, what was set, and tonight's plan. */
+
+  async function dayLogFor(owner: string, date: string): Promise<DayLog | null> {
+    const row = await db
+      .prepare(
+        `SELECT ${dayLogColumns} FROM day_logs WHERE owner_sub = ? AND date = ?`,
+      )
+      .bind(owner, date)
+      .first<DayLogRow>()
+    return row ? mapDayLog(row) : null
+  }
+
+  /** Overdue work, unread chapters and the next exam, for the AI brief. */
+  async function dayBacklog(owner: string, date: string) {
+    const [profile, subjects, ticks, overdue] = await Promise.all([
+      readProfile(db, owner),
+      db
+        .prepare('SELECT id, name, exam_date FROM subjects WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ id: string; name: string; exam_date: string }>(),
+      db
+        .prepare('SELECT subject_id, chapter FROM syllabus_progress WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ subject_id: string; chapter: string }>(),
+      db
+        .prepare(
+          'SELECT COUNT(*) AS total FROM tasks WHERE owner_sub = ? AND done = 0 AND due_date != ? AND due_date < ?',
+        )
+        .bind(owner, '', date)
+        .first<{ total: number }>(),
+    ])
+    const done = new Set(
+      ticks.results.map((row) => `${row.subject_id}::${row.chapter}`),
+    )
+    let chaptersLeft = 0
+    for (const subject of subjects.results) {
+      const chapters = profile
+        ? unitsFor(profile.classLevel, subject.name)
+        : []
+      chaptersLeft += chapters.filter(
+        (chapter) => !done.has(`${subject.id}::${chapter}`),
+      ).length
+    }
+    const exams = subjects.results
+      .map((subject) => subject.exam_date)
+      .filter((exam) => exam && exam >= date)
+      .sort()
+    const nearestExamInDays = exams.length
+      ? Math.round(
+          (new Date(`${exams[0]}T00:00:00Z`).getTime() -
+            new Date(`${date}T00:00:00Z`).getTime()) /
+            86_400_000,
+        )
+      : null
+    return {
+      backlog: {
+        overdueTasks: overdue?.total ?? 0,
+        chaptersLeft,
+        nearestExamInDays,
+      },
+      context: await syllabusContext(db, owner),
+    }
+  }
+
+  /** Today's real timetable plus whatever was saved for that day. */
+  app.get('/api/day', async (c) => {
+    const date = clean(c.req.query('date'), 10)
+    if (!DATE_PATTERN.test(date))
+      return c.json({ error: 'Pick a day to plan.' }, 400)
+    const owner = LOCAL_OWNER
+    const [log, classes] = await Promise.all([
+      dayLogFor(owner, date),
+      db
+        .prepare(
+          `SELECT ${entryColumns} FROM entries WHERE owner_sub = ? AND plan = 'regular' AND day = ? ORDER BY start_min ASC`,
+        )
+        .bind(owner, dayOfDate(date))
+        .all<EntryRow>(),
+    ])
+    const mapped = classes.results
+      .map(mapEntry)
+      .filter((entry) => entry.kind !== 'break')
+    return c.json({
+      date,
+      log,
+      classes: mapped,
+      coaching: mapped.find((entry) => entry.title === 'Coaching') ?? null,
+    })
+  })
+
+  app.put('/api/day', async (c) => {
+    const body = await readBody(c.req.raw)
+    const parsed = body ? parseDayLog(body) : null
+    if (!parsed)
+      return c.json(
+        {
+          error:
+            'That day could not be saved. Check the free times, the homework amounts and the coaching times.',
+        },
+        400,
+      )
+    const owner = LOCAL_OWNER
+    const now = Date.now()
+    await db
+      .prepare(
+        `INSERT INTO day_logs (owner_sub, date, school, coaching, homework, free_from, free_until, brief, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(owner_sub, date) DO UPDATE SET school = excluded.school,
+           coaching = excluded.coaching, homework = excluded.homework,
+           free_from = excluded.free_from, free_until = excluded.free_until,
+           brief = excluded.brief, updated_at = excluded.updated_at`,
+      )
+      .bind(
+        owner,
+        parsed.date,
+        JSON.stringify(parsed.school),
+        JSON.stringify(parsed.coaching),
+        JSON.stringify(parsed.homework),
+        parsed.freeFrom,
+        parsed.freeUntil,
+        parsed.brief,
+        now,
+      )
+      .run()
+    return c.json({ log: await dayLogFor(owner, parsed.date) })
+  })
+
+  /** Replaces only one day of the evening plan, leaving other days alone. */
+  app.post('/api/entries/day', async (c) => {
+    const body = await readBody(c.req.raw)
+    const date = body ? clean(body.date, 10) : ''
+    const list = body && Array.isArray(body.entries) ? body.entries : null
+    if (!DATE_PATTERN.test(date) || !list || list.length > 200)
+      return c.json({ error: 'That plan could not be saved.' }, 400)
+    const inputs: EntryInput[] = []
+    for (const item of list) {
+      if (!item || typeof item !== 'object' || Array.isArray(item))
+        return c.json({ error: 'That plan could not be saved.' }, 400)
+      const parsed = parseEntry(item as Record<string, unknown>)
+      if (!parsed || parsed.plan !== 'intensive' || parsed.date !== date)
+        return c.json({ error: 'That plan could not be saved.' }, 400)
+      inputs.push(parsed)
+    }
+    const owner = LOCAL_OWNER
+    await db
+      .prepare(
+        `DELETE FROM entries WHERE owner_sub = ? AND plan = 'intensive' AND date = ?`,
+      )
+      .bind(owner, date)
+      .run()
+    for (let index = 0; index < inputs.length; index += 50) {
+      await db.batch(
+        inputs
+          .slice(index, index + 50)
+          .map((input) => insertEntry(db, owner, input, 'intensive', input.subjectId)),
+      )
+    }
+    const rows = await db
+      .prepare(
+        `SELECT ${entryColumns} FROM entries WHERE owner_sub = ? AND plan = 'intensive' AND date = ? ORDER BY start_min ASC`,
+      )
+      .bind(owner, date)
+      .all<EntryRow>()
+    return c.json({ entries: rows.results.map(mapEntry) })
+  })
+
+  /** An AI end-of-day brief over the saved check-in and tonight's plan. */
+  app.post('/api/day/brief', async (c) => {
+    const body = await readBody(c.req.raw)
+    const date = body ? clean(body.date, 10) : ''
+    if (!DATE_PATTERN.test(date))
+      return c.json({ error: 'Pick a day to plan.' }, 400)
+    const owner = LOCAL_OWNER
+    const log = await dayLogFor(owner, date)
+    if (!log)
+      return c.json(
+        { error: 'Save your day first. The brief reads what you wrote.' },
+        400,
+      )
+    const { provider } = await effectiveProvider(db, env, owner)
+    if (!provider) return c.json({ error: AI_SETUP }, 503)
+    const planned = await db
+      .prepare(
+        `SELECT title, start_min, end_min FROM entries WHERE owner_sub = ? AND plan = 'intensive' AND date = ? ORDER BY start_min ASC`,
+      )
+      .bind(owner, date)
+      .all<{ title: string; start_min: number; end_min: number }>()
+    const { backlog, context } = await dayBacklog(owner, date)
+    const quota = await consumeAi(db, owner)
+    if (!quota.ok)
+      return c.json(
+        { error: `You have used today’s ${AI_DAILY_LIMIT} AI actions. They reset tomorrow.` },
+        429,
+      )
+    try {
+      const brief = await dayBrief(
+        provider,
+        {
+          school: log.school.map((item) => ({
+            title: item.title,
+            topic: item.topic,
+          })),
+          coaching: log.coaching
+            ? {
+                attending: log.coaching.attending,
+                topic: log.coaching.topic,
+              }
+            : null,
+          homework: log.homework
+            .filter((item) => item.minutes > 0)
+            .map((item) => ({ title: item.title, minutes: item.minutes })),
+          planned: planned.results.map((row) => ({
+            title: row.title,
+            minutes: row.end_min - row.start_min,
+          })),
+          backlog,
+        },
+        context,
+      )
+      await db
+        .prepare(
+          'UPDATE day_logs SET brief = ?, updated_at = ? WHERE owner_sub = ? AND date = ?',
+        )
+        .bind(brief, Date.now(), owner, date)
+        .run()
+      return c.json({ brief, remaining: quota.remaining })
     } catch (error) {
       return c.json(
         { error: error instanceof AiError ? error.message : AI_FAILED },

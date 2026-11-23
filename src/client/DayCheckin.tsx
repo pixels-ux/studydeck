@@ -59,6 +59,12 @@ export default function DayCheckin() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
+  // The timetable's coaching block is a class entry too, so count only the
+  // real school periods here and mention coaching separately.
+  const schoolPeriods = classes.filter(
+    (entry) => entry.title !== 'Coaching',
+  ).length
+
   const subjectName = (id: string | null) =>
     data.subjects.find((subject) => subject.id === id)?.name ?? 'General'
 
@@ -270,7 +276,7 @@ export default function DayCheckin() {
       <div className="card-head">
         <h3>Check in your day</h3>
         <span className="count">
-          {classes.length} school period{classes.length === 1 ? '' : 's'}
+          {schoolPeriods} school period{schoolPeriods === 1 ? '' : 's'}
           {coachingEntry ? ' · coaching' : ''}
         </span>
       </div>

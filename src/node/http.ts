@@ -11,7 +11,15 @@ export function toRequest(req: IncomingMessage): Request {
     else headers.set(key, value)
   }
   const method = req.method || 'GET'
-  const url = `http://${req.headers.host || 'localhost'}${req.url || '/'}`
+  // Behind an HTTPS proxy the browser sends an https Origin, so the rebuilt
+  // URL has to use the same scheme or the app's same-origin check refuses the
+  // write. `x-forwarded-proto` is the only thing that says which scheme was used.
+  const forwarded = req.headers['x-forwarded-proto']
+  const proto =
+    (Array.isArray(forwarded) ? forwarded[0] : forwarded)
+      ?.split(',')[0]
+      ?.trim() || 'http'
+  const url = `${proto}://${req.headers.host || 'localhost'}${req.url || '/'}`
   const body =
     method === 'GET' || method === 'HEAD' ? undefined : Readable.toWeb(req)
   return new Request(url, {

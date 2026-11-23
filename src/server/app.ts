@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
-import { syllabusBrief } from '../shared/curriculum'
+import { syllabusBrief } from '../shared/curriculum.ts'
 import type {
   EntryKind,
   EntryInput,
@@ -21,12 +21,12 @@ import {
   summariseNotes,
   usedAi,
   type NoteSource,
-} from './ai'
-import { clearAiKey, effectiveProvider, readAiKey, saveAiKey } from './aiSettings'
+} from './ai.ts'
+import { clearAiKey, effectiveProvider, readAiKey, saveAiKey } from './aiSettings.ts'
 import type { Env } from './env'
-import { calendarFileName, timetableFile } from './ics'
-import { chunkSource, MAX_SOURCE_CHARS, retrieve, search } from './library'
-import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers'
+import { calendarFileName, timetableFile } from './ics.ts'
+import { chunkSource, MAX_SOURCE_CHARS, retrieve, search } from './library.ts'
+import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers.ts'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
   ensureSchema,
@@ -45,7 +45,7 @@ import {
   type SourceRow,
   type SubjectRow,
   type TaskRow,
-} from './db'
+} from './db.ts'
 
 /** One person uses one copy of Studydeck, so there is a single workspace. */
 const LOCAL_OWNER = 'local'

@@ -1,8 +1,8 @@
 import type { Plugin } from 'vite'
-import { createApp } from '../server/app'
-import { readAiEnv } from './env'
-import { sendResponse, toRequest } from './http'
-import { openDatabase } from './sqlite'
+import { createApp } from '../server/app.ts'
+import { readAiEnv } from './env.ts'
+import { sendResponse, toRequest } from './http.ts'
+import { openDatabase } from './sqlite.ts'
 
 /**
  * In development Vite serves the client and hot reloads it; this middleware

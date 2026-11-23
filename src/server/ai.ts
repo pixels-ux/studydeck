@@ -1,4 +1,4 @@
-import { AiError, type Provider } from './providers'
+import { AiError, type Provider } from './providers.ts'
 import type { SqlDatabase } from './sql'
 
 export const AI_DAILY_LIMIT = 40

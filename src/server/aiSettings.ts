@@ -4,7 +4,7 @@ import {
   resolveProvider,
   type Provider,
   type ProviderId,
-} from './providers'
+} from './providers.ts'
 import type { SqlDatabase } from './sql'
 
 export type StoredKey = {

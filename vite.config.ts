@@ -1,6 +1,6 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
-import { studydeckApi } from './src/node/vitePlugin'
+import { studydeckApi } from './src/node/vitePlugin.ts'
 
 export default defineConfig({
   plugins: [react(), studydeckApi()],

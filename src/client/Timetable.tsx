@@ -60,15 +60,13 @@ function layOut(entries: Entry[]) {
   return result
 }
 
-/** Opaque subject tint, so the hour grid never shows through a block. */
+/**
+ * Opaque subject tint, so the hour grid never shows through a block. Mixed
+ * with the card colour rather than a fixed cream, so it follows the theme.
+ */
 function tint(color: string): string {
   const hex = /^#[0-9a-f]{6}$/i.test(color) ? color : '#5f6d5f'
-  const value = Number.parseInt(hex.slice(1), 16)
-  const paper = [250, 249, 243]
-  const blend = [16, 8, 0].map((shift, index) =>
-    Math.round((((value >> shift) & 255) * 0.15 + paper[index]! * 0.85)),
-  )
-  return `rgb(${blend.join(', ')})`
+  return `color-mix(in srgb, ${hex} 15%, var(--card))`
 }
 
 function hourLabel(minutes: number): string {

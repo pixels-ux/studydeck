@@ -4,7 +4,13 @@ import type { WorkspaceData } from '../shared/types'
 import { api, rememberNotebook } from './api'
 import Shell from './Shell'
 import { WorkspaceProvider } from './workspace'
+import { applyTheme, rememberTheme, themeChoice } from './theme'
 import './style.css'
+
+// The page was already painted by the inline script in index.html; this keeps
+// the check in sync and starts following the system from now on.
+applyTheme(themeChoice())
+rememberTheme(themeChoice())
 
 function App() {
   const [data, setData] = useState<WorkspaceData | null>(null)

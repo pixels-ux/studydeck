@@ -69,6 +69,10 @@ bun start         # http://localhost:3000
 - **AI study desk** — summarise your notes into revision points, or ask a
   question answered only from your own notes, with the note it used. It knows
   your class and chapters. Capped at 40 actions a day.
+- **Light or dark** — the app follows your computer's theme, and the Auto /
+  Light / Dark switch in the left rail overrides it. The choice is kept in this
+  browser, and a dark page is painted before the first frame so nothing flashes
+  light.
 
 ## Your data
 

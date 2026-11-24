@@ -9,6 +9,19 @@
     />
     <meta name="theme-color" content="#1d3027" />
     <title>Studydeck: timetable, deadlines and notes</title>
+    <script>
+      // Before the first paint, so a dark screen never flashes light.
+      try {
+        var picked = localStorage.getItem('studydeck:theme')
+        var dark =
+          picked === 'dark' ||
+          (picked !== 'light' &&
+            matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+      } catch (error) {
+        document.documentElement.dataset.theme = 'light'
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

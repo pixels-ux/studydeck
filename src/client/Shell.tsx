@@ -7,6 +7,7 @@ import StudyDesk from './StudyDesk'
 import Syllabus from './Syllabus'
 import Timetable from './Timetable'
 import Work from './Work'
+import { rememberTheme, themeChoice, type ThemeChoice } from './theme'
 import { useWorkspace } from './workspace'
 
 export type Tab =
@@ -32,6 +33,12 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'desk', label: 'AI study desk', hint: 'Summaries and answers from your notes' },
 ]
 
+const THEMES = [
+  { id: 'system', label: 'Auto' },
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+] as const
+
 /** `#/notes` and friends, so a reload or a bookmark keeps the tab. */
 function tabFromHash(): Tab {
   const id = window.location.hash.replace(/^#\/?/, '')
@@ -49,6 +56,12 @@ export default function Shell() {
   const [tab, setTab] = useState<Tab>(tabFromHash)
   const [editing, setEditing] = useState(false)
   const [bookError, setBookError] = useState('')
+  const [theme, setTheme] = useState<ThemeChoice>(themeChoice)
+
+  const pickTheme = (choice: ThemeChoice) => {
+    rememberTheme(choice)
+    setTheme(choice)
+  }
 
   const run = async (work: () => Promise<void>) => {
     setBookError('')
@@ -187,6 +200,21 @@ export default function Shell() {
           {data.profile ? (
             <span className="rail-class">Class {data.profile.classLevel} · CBSE</span>
           ) : null}
+          <div className="theme-switch" role="group" aria-label="Colour theme">
+            {THEMES.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={
+                  theme === option.id ? 'theme-option active' : 'theme-option'
+                }
+                aria-pressed={theme === option.id}
+                onClick={() => pickTheme(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <p className="rail-who">On this computer</p>
         </div>
       </aside>

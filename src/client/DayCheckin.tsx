@@ -591,7 +591,7 @@ export default function DayCheckin() {
                     style={{
                       background:
                         entry.kind === 'break'
-                          ? '#cfd8c8'
+                          ? 'var(--line-strong)'
                           : data.subjects.find(
                               (subject) => subject.id === entry.subjectId,
                             )?.color ?? '#5f6d5f',

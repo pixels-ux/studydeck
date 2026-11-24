@@ -23,6 +23,8 @@ import {
   dayBrief,
   consumeAi,
   practiceQuestions,
+  revisionCards,
+  revisionSlides,
   summariseNotes,
   usedAi,
   type NoteSource,
@@ -311,8 +313,16 @@ const messageColumns =
   'id, subject_id, role, body, citations, created_at'
 const dayLogColumns =
   'date, school, coaching, homework, free_from, free_until, brief, updated_at'
-const TRANSFORMS = ['summary', 'questions'] as const
+const TRANSFORMS = ['summary', 'questions', 'flashcards', 'slides'] as const
 type Transform = (typeof TRANSFORMS)[number]
+
+/** The note a transformation is saved under, e.g. "Flashcards · Light". */
+const TRANSFORM_TITLES: Record<Transform, string> = {
+  summary: 'Summary',
+  questions: 'Practice questions',
+  flashcards: 'Flashcards',
+  slides: 'Slides',
+}
 
 /** One INSERT shared by the revision-plan and class-setup endpoints. */
 function insertEntry(
@@ -1938,20 +1948,17 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       )
     try {
       const context = await syllabusContext(db, owner)
+      const material = { title: row.title, body: row.body }
       const text =
         kind === 'summary'
-          ? await summariseNotes(
-              provider,
-              [{ title: row.title, body: row.body }],
-              context,
-            )
-          : await practiceQuestions(
-              provider,
-              { title: row.title, body: row.body },
-              context,
-            )
+          ? await summariseNotes(provider, [material], context)
+          : kind === 'questions'
+            ? await practiceQuestions(provider, material, context)
+            : kind === 'flashcards'
+              ? await revisionCards(provider, material, context)
+              : await revisionSlides(provider, material, context)
       const now = Date.now()
-      const title = `${kind === 'summary' ? 'Summary' : 'Practice questions'} · ${row.title}`.slice(0, 120)
+      const title = `${TRANSFORM_TITLES[kind]} · ${row.title}`.slice(0, 120)
       const note = await db
         .prepare(
           `INSERT INTO study_notes (id, owner_sub, subject_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${noteColumns}`,

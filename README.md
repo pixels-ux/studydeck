@@ -54,7 +54,7 @@ bun start         # http://localhost:3000
 - **Notes** — private notes per subject.
 - **Library** — your own material: paste a chapter or add a text file, search
   inside it, ask questions answered only from it with citations, and turn it
-  into revision notes or practice questions.
+  into revision notes, practice questions, flashcards or a slide deck.
 - **Your data** — download subjects, timetable, tasks, notes, day check-ins
   (with their AI briefs), syllabus, library material and the library
   conversations about it as one JSON file, load one back, or delete the whole
@@ -133,6 +133,9 @@ subject. Then:
   over** clears it.
 - **Summarise** and **Practice questions** turn one item into a study note saved
   in Notes, ready to edit.
+- **Flashcards** and **Slides** turn it into revision material: 6 to 12 question
+  and answer cards, or a 6 to 10 slide outline. Both are saved in Notes, and
+  **Revise** on that note flips through the cards or steps through the slides.
 
 Matching is by keyword: material is cut into paragraphs, and the paragraphs
 sharing the rarest words with your question are the ones sent. Nothing is

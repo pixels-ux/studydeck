@@ -2306,3 +2306,34 @@ a.btn {
     grid-template-columns: 1fr;
   }
 }
+
+/* Revision: flashcards and slides */
+
+.revision-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.revision-card h4 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.revision-card p {
+  margin: 0;
+}
+
+.revision-card ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

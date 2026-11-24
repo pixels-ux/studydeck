@@ -171,7 +171,10 @@ export default function Library() {
     }
   }
 
-  async function transform(source: Source, kind: 'summary' | 'questions') {
+  async function transform(
+    source: Source,
+    kind: 'summary' | 'questions' | 'flashcards' | 'slides',
+  ) {
     setWorking(`${source.id}:${kind}`)
     setError('')
     setNotice('')
@@ -427,6 +430,22 @@ export default function Library() {
                         : 'Practice questions'}
                     </button>
                     <button
+                      className="btn ghost small"
+                      disabled={!data.ai.enabled || Boolean(working)}
+                      onClick={() => void transform(source, 'flashcards')}
+                    >
+                      {working === `${source.id}:flashcards`
+                        ? 'Making cards…'
+                        : 'Flashcards'}
+                    </button>
+                    <button
+                      className="btn ghost small"
+                      disabled={!data.ai.enabled || Boolean(working)}
+                      onClick={() => void transform(source, 'slides')}
+                    >
+                      {working === `${source.id}:slides` ? 'Making slides…' : 'Slides'}
+                    </button>
+                    <button
                       className="btn danger small"
                       onClick={() => void remove(source)}
                     >
@@ -439,8 +458,10 @@ export default function Library() {
           )}
           <p className="fineprint">
             Material is cut into paragraphs and matched by keyword, so nothing is
-            sent anywhere to be indexed. A summary or set of practice questions is
-            saved into Notes, where you can edit it.
+            sent anywhere to be indexed. A summary, practice questions, flashcards
+            or a slide outline is saved into Notes, where you can edit it. Open a
+            flashcard or slide note and press <strong>Revise</strong> to work
+            through it.
           </p>
         </section>
 

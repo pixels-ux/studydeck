@@ -295,3 +295,41 @@ test('the library says so when no AI provider is configured', async () => {
   })
   expect(transform.status).toBe(503)
 })
+
+test('material can become flashcards or a slide outline', async () => {
+  stubAi('Q: What drives photosynthesis?\nA: Chlorophyll absorbs light.')
+  const { call } = harness()
+  const created = await call('/api/sources', 'POST', {
+    title: 'Life processes',
+    body: PHOTOSYNTHESIS,
+  })
+  const { source } = (await created.json()) as { source: Source }
+
+  const cards = await call('/api/library/transform', 'POST', {
+    sourceId: source.id,
+    kind: 'flashcards',
+  })
+  expect(cards.status).toBe(200)
+  const card = (await cards.json()) as { note: Note }
+  expect(card.note.title).toBe('Flashcards · Life processes')
+  expect(card.note.body).toContain('Q: What drives photosynthesis?')
+  expect(card.note.subjectId).toBeNull()
+
+  const slides = await call('/api/library/transform', 'POST', {
+    sourceId: source.id,
+    kind: 'slides',
+  })
+  expect(slides.status).toBe(200)
+  const slide = (await slides.json()) as { note: Note }
+  expect(slide.note.title).toBe('Slides · Life processes')
+  expect(slide.note.body).toContain('Q: What drives photosynthesis?')
+
+  expect(
+    (
+      await call('/api/library/transform', 'POST', {
+        sourceId: source.id,
+        kind: 'podcast',
+      })
+    ).status,
+  ).toBe(400)
+})

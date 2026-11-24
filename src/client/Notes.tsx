@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { Note, NoteInput } from '../shared/types'
 import { fmtDate } from './dates'
+import Revision from './Revision'
+import { revisionKindOf } from './revision'
 import { useWorkspace } from './workspace'
 
 const emptyDraft: NoteInput = { subjectId: null, title: '', body: '' }
@@ -23,6 +25,7 @@ export default function Notes() {
   const [query, setQuery] = useState('')
   const [subjectFilter, setSubjectFilter] = useState('')
   const [busy, setBusy] = useState(false)
+  const [revising, setRevising] = useState(false)
   const [error, setError] = useState('')
 
   const selected = data.notes.find((note) => note.id === selectedId) ?? null
@@ -222,6 +225,15 @@ export default function Notes() {
             {words} words · {draft.body.length}/8000 characters
           </span>
           <div className="form-actions">
+            {selected && !creating && revisionKindOf(selected.title) ? (
+              <button
+                className="btn ghost"
+                disabled={busy}
+                onClick={() => setRevising(true)}
+              >
+                Revise
+              </button>
+            ) : null}
             {selected && !creating ? (
               <button
                 className="btn danger"
@@ -238,6 +250,9 @@ export default function Notes() {
         </div>
         {error ? <p className="error small">{error}</p> : null}
       </section>
+      {revising && selected ? (
+        <Revision note={selected} onClose={() => setRevising(false)} />
+      ) : null}
     </div>
   )
 }

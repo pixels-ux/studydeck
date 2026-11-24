@@ -201,6 +201,55 @@ export function practiceQuestions(
   )
 }
 
+/** Revision cards: strict Q/A pairs the app can flip through. */
+export function revisionCards(
+  provider: Provider,
+  source: NoteSource,
+  context = '',
+): Promise<string> {
+  return complete(
+    provider,
+    [
+      { role: 'system', content: systemPrompt(context) },
+      {
+        role: 'user',
+        content:
+          `Write revision flashcards from the material below: 6 to 12 cards covering the key facts, definitions and steps. ` +
+          `Use exactly this format, one card after another, with a blank line between cards and nothing else:\n` +
+          `Q: <one short question>\nA: <the answer, one or two sentences>\n\n` +
+          `Use only what the material says. No numbering, no headings and no commentary.\n\n` +
+          buildSourceBlock([source]),
+      },
+    ],
+    1_200,
+  )
+}
+
+/** A slide outline: headings and a few bullets, one slide per --- line. */
+export function revisionSlides(
+  provider: Provider,
+  source: NoteSource,
+  context = '',
+): Promise<string> {
+  return complete(
+    provider,
+    [
+      { role: 'system', content: systemPrompt(context) },
+      {
+        role: 'user',
+        content:
+          `Turn the material below into a short presentation for revising it: 6 to 10 slides. ` +
+          `Start each slide with a heading line beginning "# " and add at most four "- " bullets of a few words each. ` +
+          `Separate slides with a line containing only ---. ` +
+          `Begin with a title slide, give one idea per slide, and end with a "# Check yourself" slide of three questions. ` +
+          `Use only what the material says. No other text.\n\n` +
+          buildSourceBlock([source]),
+      },
+    ],
+    1_400,
+  )
+}
+
 export type DayBriefInput = {
   school: { title: string; topic: string }[]
   coaching: { attending: boolean; topic: string } | null

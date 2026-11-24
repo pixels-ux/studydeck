@@ -1,10 +1,17 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
-import type { Citation, LibraryMessage, Note, Source, SourceInput } from '../shared/types'
+import type {
+  Citation,
+  LibraryMessage,
+  LibrarySearchHit,
+  Note,
+  Source,
+  SourceInput,
+} from '../shared/types'
 import { api } from './api'
 import Prose from './Prose'
 import { useWorkspace } from './workspace'
 
-type SearchHit = { sourceId: string; sourceTitle: string; snippet: string }
+type SearchHit = LibrarySearchHit
 type AskResult = {
   student: LibraryMessage
   reply: LibraryMessage
@@ -340,9 +347,9 @@ export default function Library({
           </div>
           <p className="muted">
             Add chapters, articles or your own notes, then ask questions that are
-            answered from them. Answers name the material they used, search finds
-            a phrase across everything, and one click turns material into
-            revision notes or practice questions.
+            answered from them. Answers name the material they used, Find matches
+            on words or on meaning, and one click turns material into revision
+            notes or practice questions.
           </p>
         </div>
         <label className="field">
@@ -490,7 +497,7 @@ export default function Library({
             <input
               value={searchQuery}
               maxLength={200}
-              placeholder="Find a phrase in your material…"
+              placeholder="Find a phrase or an idea in your material…"
               aria-label="Search your material"
               onChange={(event) => setSearchQuery(event.target.value)}
             />
@@ -506,13 +513,20 @@ export default function Library({
               <ul className="hit-list">
                 {hits.map((hit) => (
                   <li key={hit.sourceId} className="hit">
-                    <strong>{hit.sourceTitle}</strong>
+                    <strong>
+                      {hit.sourceTitle}
+                      {hit.byMeaning ? (
+                        <span className="hit-meaning">by meaning</span>
+                      ) : null}
+                    </strong>
                     <span>{hit.snippet}</span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="empty-line">No material contains that phrase.</p>
+              <p className="empty-line">
+                Nothing in your material is close to that.
+              </p>
             )
           ) : null}
           {noteHits.length ? (

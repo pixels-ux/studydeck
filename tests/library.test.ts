@@ -281,6 +281,66 @@ test('material follows its subject, travels in the backup and is reset', async (
   expect(reset.library).toHaveLength(0)
 })
 
+test('find matches on meaning when the words differ', async () => {
+  const { call } = harness({})
+  const create = async (title: string, body: string) => {
+    const response = await call('/api/sources', 'POST', {
+      title,
+      body,
+      origin: 'Pasted',
+      subjectId: null,
+    })
+    expect(response.status).toBe(201)
+    return (await response.json()) as { source: { id: string } }
+  }
+
+  const sugar = await create(
+    'Photosynthesis',
+    'Photosynthesis makes glucose, a kind of sugar, inside the chloroplast.',
+  )
+  const phloem = await create(
+    'Transport',
+    'Sugars travel through the phloem to every part of the plant.',
+  )
+  await create(
+    'Respiration',
+    'Mitochondria release energy from food during respiration.',
+  )
+
+  const found = (await (
+    await call('/api/library/search?q=glucose')
+  ).json()) as { results: { sourceId: string; byMeaning: boolean }[] }
+  expect(found.results[0]).toMatchObject({
+    sourceId: sugar.source.id,
+    byMeaning: false,
+  })
+  // Nothing here says "glucose", but the material links sugar to it.
+  expect(
+    found.results.find((hit) => hit.sourceId === phloem.source.id)?.byMeaning,
+  ).toBe(true)
+
+  // A word the material never uses finds nothing at all.
+  const missing = (await (
+    await call('/api/library/search?q=quasar')
+  ).json()) as { results: unknown[] }
+  expect(missing.results).toHaveLength(0)
+
+  // Editing material rebuilds the index: the replaced word no longer finds it.
+  const edited = await call(`/api/sources/${phloem.source.id}`, 'PATCH', {
+    title: 'Transport',
+    body: 'Water travels through the xylem to every part of the plant.',
+    origin: 'Pasted',
+    subjectId: null,
+  })
+  expect(edited.status).toBe(200)
+  const after = (await (
+    await call('/api/library/search?q=phloem')
+  ).json()) as { results: { sourceId: string }[] }
+  expect(after.results.some((hit) => hit.sourceId === phloem.source.id)).toBe(
+    false,
+  )
+})
+
 test('the library says so when no AI provider is configured', async () => {
   const { call } = harness({})
   const created = await call('/api/sources', 'POST', {

@@ -136,8 +136,10 @@ file, and give it a subject. Text is pulled out of the file for you to check
 before it is added; a scanned PDF has only pictures, so it asks for the text
 instead of saving an empty item. Then:
 
-- **Find** searches every paragraph and shows the sentence around the match. It
-  also lists notes that contain the phrase, and choosing one opens it in Notes.
+- **Find** matches on words and on meaning: a paragraph that never uses your
+  words still comes back, marked *by meaning*, when the material itself puts it
+  near the idea. It shows the sentence around the match, also lists notes that
+  contain the phrase, and choosing one opens it in Notes.
 - **Ask** sends only the paragraphs that match your question and asks for an
   answer from them alone. The answer cites them as `[1]`, `[2]` and a chip under
   it names the material used. The conversation is kept per subject, and **Start
@@ -151,9 +153,13 @@ instead of saving an empty item. Then:
   of that subject in one set, each item given a share of the prompt so a whole
   topic is represented.
 
-Matching is by keyword: material is cut into paragraphs, and the paragraphs
-sharing the rarest words with your question are the ones sent. Nothing is
-embedded or uploaded for indexing, so there is no vector database to install.
+Material is cut into paragraphs, and a question sends the paragraphs sharing the
+rarest words with it. Finding by meaning needs no second model and no vector
+database: every word starts with a fixed random direction, words that keep
+appearing in the same paragraphs drift towards each other, and a paragraph is
+the sum of its words. The result is a small meaning index built from your own
+material, kept in memory and rebuilt only when that material changes, so nothing
+is downloaded, embedded or uploaded.
 Limits are 200 items at 20,000 characters each, a 25 MB file for the reader,
 and AI work shares the same 40 actions a day. A long document is cut at 20,000
 characters with a note telling you to split it into chapters. Adding, reading and

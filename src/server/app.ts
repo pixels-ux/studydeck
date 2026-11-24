@@ -34,7 +34,14 @@ import { clearAiKey, effectiveProvider, readAiKey, saveAiKey } from './aiSetting
 import type { Env } from './env'
 import { documentKind, extractDocument } from './extract.ts'
 import { calendarFileName, timetableFile } from './ics.ts'
-import { chunkSource, MAX_SOURCE_CHARS, retrieve, search } from './library.ts'
+import {
+  buildSemanticIndex,
+  chunkSource,
+  MAX_SOURCE_CHARS,
+  retrieve,
+  search,
+  type SemanticIndex,
+} from './library.ts'
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers.ts'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
@@ -1956,6 +1963,32 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       chunkSource({ id: row.id, title: row.title, body: row.body }),
     )
 
+  /**
+   * Meaning vectors are worked out from the material, so they live in memory
+   * and are rebuilt only when that material changes. Nothing extra is stored
+   * in the data file or sent anywhere.
+   */
+  const meanings = new Map<string, { signature: string; index: SemanticIndex }>()
+  async function meaningIndex(
+    owner: string,
+    subjectId: string | null,
+    chunks: ReturnType<typeof chunksOf>,
+  ): Promise<SemanticIndex> {
+    const mark = await db
+      .prepare(
+        'SELECT COUNT(*) AS total, COALESCE(MAX(updated_at), 0) AS latest, COALESCE(SUM(LENGTH(body)), 0) AS size FROM sources WHERE owner_sub = ? AND subject_id IS ?',
+      )
+      .bind(owner, subjectId)
+      .first<{ total: number; latest: number; size: number }>()
+    const slot = `${owner}|${subjectId ?? 'all'}`
+    const signature = `${mark?.total ?? 0}:${mark?.latest ?? 0}:${mark?.size ?? 0}`
+    const cached = meanings.get(slot)
+    if (cached?.signature === signature) return cached.index
+    const index = buildSemanticIndex(chunks)
+    meanings.set(slot, { signature, index })
+    return index
+  }
+
   app.post('/api/sources', async (c) => {
     const body = await readBody(c.req.raw)
     const input = body ? parseSource(body) : null
@@ -2037,7 +2070,11 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       : c.json({ error: 'Material not found.' }, 404)
   })
 
-  /** Full-text search across the material, one best paragraph per source. */
+  /**
+   * Search the material by words and by meaning, one best paragraph per source.
+   * A paragraph that shares no word with the query still comes back when the
+   * material's own vocabulary puts it near what was asked.
+   */
   app.get('/api/library/search', async (c) => {
     const query = clean(c.req.query('q'), 200)
     const rawSubject = c.req.query('subjectId')
@@ -2045,8 +2082,11 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     if (rawSubject && !subjectId)
       return c.json({ error: 'Subject not found.' }, 404)
     if (!query) return c.json({ results: [] as LibrarySearchHit[] })
-    const rows = await librarySources(c.get('owner'), subjectId)
-    return c.json({ results: search(chunksOf(rows), query) })
+    const owner = c.get('owner')
+    const rows = await librarySources(owner, subjectId)
+    const chunks = chunksOf(rows)
+    const index = await meaningIndex(owner, subjectId, chunks)
+    return c.json({ results: search(chunks, query, 8, index) })
   })
 
   /** Ask a question of the material and keep the exchange in the notebook. */

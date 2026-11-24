@@ -155,6 +155,8 @@ export type LibrarySearchHit = {
   sourceId: string
   sourceTitle: string
   snippet: string
+  /** True when the paragraph shares no word with the query. */
+  byMeaning: boolean
 }
 
 export type AiState = {

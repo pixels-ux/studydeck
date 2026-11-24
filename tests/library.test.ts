@@ -341,6 +341,46 @@ test('find matches on meaning when the words differ', async () => {
   )
 })
 
+test('a library question is grounded in material that matches by meaning', async () => {
+  stubAi('Sugar is carried through the phloem [2].')
+  const { call } = harness()
+  const create = async (title: string, body: string) => {
+    const response = await call('/api/sources', 'POST', {
+      title,
+      body,
+      origin: 'Pasted',
+      subjectId: null,
+    })
+    expect(response.status).toBe(201)
+    return (await response.json()) as { source: Source }
+  }
+
+  const sugar = await create(
+    'Photosynthesis',
+    'Photosynthesis makes glucose, a kind of sugar, inside the chloroplast.',
+  )
+  const phloem = await create(
+    'Transport',
+    'Sugars travel through the phloem to every part of the plant.',
+  )
+  await create(
+    'Respiration',
+    'Mitochondria release energy from food during respiration.',
+  )
+
+  const ask = await call('/api/library/ask', 'POST', { question: 'glucose' })
+  expect(ask.status).toBe(200)
+  const answer = (await ask.json()) as { reply: LibraryMessage }
+  const citations = answer.reply.citations
+  expect(citations[0]?.sourceId).toBe(sugar.source.id)
+  // Nothing in that passage says "glucose"; the material linked the two.
+  const near = citations.find((item) => item.sourceId === phloem.source.id)
+  expect(near).toBeDefined()
+  // The number still means the passage the model was actually given.
+  expect(near!.index).toBe(2)
+  expect(citations.filter((item) => item.sourceId === phloem.source.id)).toHaveLength(1)
+})
+
 test('the library says so when no AI provider is configured', async () => {
   const { call } = harness({})
   const created = await call('/api/sources', 'POST', {

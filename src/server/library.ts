@@ -160,6 +160,43 @@ function scoreChunks(
   })
 }
 
+type RankedChunk = {
+  chunk: SourceChunk
+  matched: string[]
+  meaning: number
+  rank: number
+  position: number
+}
+
+/**
+ * Paragraphs in the order they answer the question: shared rare words first,
+ * then paragraphs the material's own vocabulary puts near it. Pass the index
+ * built for these chunks to let meaning count.
+ */
+function rankChunks(
+  chunks: SourceChunk[],
+  question: string,
+  index?: SemanticIndex | null,
+): RankedChunk[] {
+  const scored = scoreChunks(chunks, question)
+  const asked = index ? askVector(index, question) : null
+  const best = scored.reduce((top, item) => Math.max(top, item.score), 0)
+
+  return scored
+    .map((item, position) => {
+      const meaning = asked ? similarity(asked, index!.vectors[position]!) : 0
+      return {
+        chunk: item.chunk,
+        matched: item.matched,
+        meaning,
+        position,
+        rank: (best ? item.score / best : 0) + Math.max(0, meaning) * MEANING_WEIGHT,
+      }
+    })
+    .filter((item) => item.matched.length > 0 || item.meaning >= MEANING_FLOOR)
+    .sort((a, b) => b.rank - a.rank || a.position - b.position)
+}
+
 /**
  * The passages to send with a question, numbered by source so a citation like
  * [2] always means the same piece of material in the answer and in the UI.
@@ -168,15 +205,12 @@ export function retrieve(
   chunks: SourceChunk[],
   question: string,
   limit = MAX_CITED_SOURCES,
+  index?: SemanticIndex | null,
 ): CitedSource[] {
-  const scored = scoreChunks(chunks, question)
-  const ranked = scored
-    .map((item, position) => ({ ...item, position }))
-    .sort((a, b) => b.score - a.score || a.position - b.position)
+  const ranked = rankChunks(chunks, question, index)
 
   const bySource = new Map<string, { title: string; parts: string[] }>()
   for (const item of ranked) {
-    if (item.score <= 0) break
     const existing = bySource.get(item.chunk.sourceId)
     if (existing && existing.parts.length >= MAX_CHUNKS_PER_SOURCE) continue
     if (!existing)
@@ -375,26 +409,10 @@ export function search(
   limit = 8,
   index?: SemanticIndex | null,
 ): SearchHit[] {
-  const scored = scoreChunks(chunks, query)
-  const asked = index ? askVector(index, query) : null
-  const best = scored.reduce((top, item) => Math.max(top, item.score), 0)
-
   const seen = new Set<string>()
   const hits: SearchHit[] = []
-  const ranked = scored
-    .map((item, position) => {
-      const meaning = asked ? similarity(asked, index!.vectors[position]!) : 0
-      return {
-        ...item,
-        position,
-        meaning,
-        rank: (best ? item.score / best : 0) + Math.max(0, meaning) * MEANING_WEIGHT,
-      }
-    })
-    .filter((item) => item.score > 0 || item.meaning >= MEANING_FLOOR)
-    .sort((a, b) => b.rank - a.rank || a.position - b.position)
 
-  for (const item of ranked) {
+  for (const item of rankChunks(chunks, query, index)) {
     if (seen.has(item.chunk.sourceId)) continue
     seen.add(item.chunk.sourceId)
     hits.push({

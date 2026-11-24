@@ -2105,7 +2105,13 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         { error: 'Add some material first. Answers come from what you add.' },
         400,
       )
-    const cited = retrieve(chunksOf(rows), question)
+    const chunks = chunksOf(rows)
+    const cited = retrieve(
+      chunks,
+      question,
+      undefined,
+      await meaningIndex(owner, subjectId, chunks),
+    )
     const quota = await consumeAi(db, owner)
     if (!quota.ok)
       return c.json(

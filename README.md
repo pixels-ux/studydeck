@@ -153,13 +153,15 @@ instead of saving an empty item. Then:
   of that subject in one set, each item given a share of the prompt so a whole
   topic is represented.
 
-Material is cut into paragraphs, and a question sends the paragraphs sharing the
-rarest words with it. Finding by meaning needs no second model and no vector
-database: every word starts with a fixed random direction, words that keep
-appearing in the same paragraphs drift towards each other, and a paragraph is
-the sum of its words. The result is a small meaning index built from your own
-material, kept in memory and rebuilt only when that material changes, so nothing
-is downloaded, embedded or uploaded.
+Material is cut into paragraphs, and a question sends the paragraphs that share
+its rarest words — plus the passages that only match by meaning. Finding by
+meaning needs no second model and no vector database: every word starts with a
+fixed random direction, words that keep appearing in the same paragraphs drift
+towards each other, and a paragraph is the sum of its words. The result is a
+small meaning index built from your own material, kept in memory and rebuilt
+only when that material changes, so nothing is downloaded, embedded or uploaded.
+Answers cite the numbered passage they used, whichever way it was found, so a
+far-fetched answer can always be checked against the material.
 Limits are 200 items at 20,000 characters each, a 25 MB file for the reader,
 and AI work shares the same 40 actions a day. A long document is cut at 20,000
 characters with a note telling you to split it into chapters. Adding, reading and

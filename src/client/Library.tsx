@@ -70,6 +70,9 @@ export default function Library() {
   const scopeName =
     data.subjects.find((subject) => subject.id === scopeId)?.name ??
     'all your material'
+  const scopeCount = data.sources.filter(
+    (source) => scope && source.subjectId === scope,
+  ).length
 
   const sources = data.sources.filter((source) => {
     if (scope && source.subjectId !== scope) return false
@@ -193,6 +196,29 @@ export default function Library() {
     }
   }
 
+  /** Revision for a whole subject, not one chapter at a time. */
+  async function transformSubject(kind: 'flashcards' | 'slides') {
+    if (!scope) return
+    setWorking(`subject:${scope}:${kind}`)
+    setError('')
+    setNotice('')
+    try {
+      const result = await api<{ note: Note; remaining: number }>(
+        '/api/library/transform',
+        { method: 'POST', body: { subjectId: scope, kind } },
+      )
+      adoptNote(result.note)
+      setAiRemaining(result.remaining)
+      setNotice(
+        `Saved “${result.note.title}” in Notes, from all ${scopeName} material.`,
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not make that note.')
+    } finally {
+      setWorking('')
+    }
+  }
+
   async function find(event: FormEvent) {
     event.preventDefault()
     const text = searchQuery.trim()
@@ -277,6 +303,35 @@ export default function Library() {
               {adding ? 'Close' : 'Add material'}
             </button>
           </div>
+
+          {scope && scopeCount > 0 ? (
+            <div className="scope-revision">
+              <p className="muted">
+                Revise all {scopeCount} {scopeCount === 1 ? 'item' : 'items'} of{' '}
+                {scopeName} at once:
+              </p>
+              <div className="form-actions">
+                <button
+                  className="btn ghost small"
+                  disabled={!data.ai.enabled || Boolean(working)}
+                  onClick={() => void transformSubject('flashcards')}
+                >
+                  {working === `subject:${scope}:flashcards`
+                    ? 'Making cards…'
+                    : 'Flashcards for the subject'}
+                </button>
+                <button
+                  className="btn ghost small"
+                  disabled={!data.ai.enabled || Boolean(working)}
+                  onClick={() => void transformSubject('slides')}
+                >
+                  {working === `subject:${scope}:slides`
+                    ? 'Making slides…'
+                    : 'Slides for the subject'}
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {adding ? (
             <form className="source-form" onSubmit={(event) => void add(event)}>
@@ -459,9 +514,10 @@ export default function Library() {
           <p className="fineprint">
             Material is cut into paragraphs and matched by keyword, so nothing is
             sent anywhere to be indexed. A summary, practice questions, flashcards
-            or a slide outline is saved into Notes, where you can edit it. Open a
-            flashcard or slide note and press <strong>Revise</strong> to work
-            through it.
+            or a slide outline is saved into Notes, where you can edit it. Choose a
+            subject under <strong>Work from</strong> and the flashcards or slides
+            cover all of that subject's material together. Open a flashcard or
+            slide note and press <strong>Revise</strong> to work through it.
           </p>
         </section>
 

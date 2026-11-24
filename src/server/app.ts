@@ -1924,20 +1924,56 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   app.post('/api/library/transform', async (c) => {
     const body = await readBody(c.req.raw)
     const sourceId = body ? identifier(body.sourceId) : null
+    const subjectId = body ? identifier(body.subjectId) : null
     const kind = TRANSFORMS.find((option) => option === body?.kind)
-    if (!sourceId || !kind)
+    if (!kind || Boolean(sourceId) === Boolean(subjectId))
       return c.json(
-        { error: 'Pick a piece of material and what to make from it.' },
+        {
+          error: 'Pick a piece of material or a subject, and what to make from it.',
+        },
         400,
       )
     const owner = LOCAL_OWNER
-    const row = await db
-      .prepare(
-        `SELECT ${sourceColumns} FROM sources WHERE id = ? AND owner_sub = ?`,
-      )
-      .bind(sourceId, owner)
-      .first<SourceRow>()
-    if (!row) return c.json({ error: 'Material not found.' }, 404)
+
+    /** One item, or everything filed under one subject. */
+    let heading: string
+    let noteSubjectId: string | null
+    let material: NoteSource[]
+    if (sourceId) {
+      const row = await db
+        .prepare(
+          `SELECT ${sourceColumns} FROM sources WHERE id = ? AND owner_sub = ?`,
+        )
+        .bind(sourceId, owner)
+        .first<SourceRow>()
+      if (!row) return c.json({ error: 'Material not found.' }, 404)
+      heading = row.title
+      noteSubjectId = row.subject_id
+      material = [{ title: row.title, body: row.body }]
+    } else {
+      const subject = await db
+        .prepare('SELECT id, name FROM subjects WHERE id = ? AND owner_sub = ?')
+        .bind(subjectId, owner)
+        .first<{ id: string; name: string }>()
+      if (!subject) return c.json({ error: 'Subject not found.' }, 404)
+      const rows = await db
+        .prepare(
+          `SELECT ${sourceColumns} FROM sources WHERE owner_sub = ? AND subject_id = ? ORDER BY updated_at DESC LIMIT 40`,
+        )
+        .bind(owner, subject.id)
+        .all<SourceRow>()
+      if (!rows.results.length)
+        return c.json(
+          { error: `Add some material to ${subject.name} first.` },
+          400,
+        )
+      heading = subject.name
+      noteSubjectId = subject.id
+      material = rows.results.map((item) => ({
+        title: item.title,
+        body: item.body,
+      }))
+    }
     const { provider } = await effectiveProvider(db, env, owner)
     if (!provider) return c.json({ error: AI_SETUP }, 503)
     const quota = await consumeAi(db, owner)
@@ -1948,17 +1984,16 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       )
     try {
       const context = await syllabusContext(db, owner)
-      const material = { title: row.title, body: row.body }
       const text =
         kind === 'summary'
-          ? await summariseNotes(provider, [material], context)
+          ? await summariseNotes(provider, material, context)
           : kind === 'questions'
             ? await practiceQuestions(provider, material, context)
             : kind === 'flashcards'
               ? await revisionCards(provider, material, context)
               : await revisionSlides(provider, material, context)
       const now = Date.now()
-      const title = `${TRANSFORM_TITLES[kind]} · ${row.title}`.slice(0, 120)
+      const title = `${TRANSFORM_TITLES[kind]} · ${heading}`.slice(0, 120)
       const note = await db
         .prepare(
           `INSERT INTO study_notes (id, owner_sub, subject_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${noteColumns}`,
@@ -1966,7 +2001,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         .bind(
           crypto.randomUUID(),
           owner,
-          row.subject_id,
+          noteSubjectId,
           title,
           text,
           now,

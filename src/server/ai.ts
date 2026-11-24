@@ -179,10 +179,10 @@ export function answerFromMaterial(
   )
 }
 
-/** A transformation: turn one piece of material into practice questions. */
+/** A transformation: turn material into practice questions. */
 export function practiceQuestions(
   provider: Provider,
-  source: NoteSource,
+  sources: NoteSource[],
   context = '',
 ): Promise<string> {
   return complete(
@@ -194,17 +194,37 @@ export function practiceQuestions(
         content:
           `Write 5 exam-style practice questions from the material below, easiest first. Number them 1 to 5. ` +
           `After each question, put the answer on the next line beginning "Answer: ". Use only what the material says.\n\n` +
-          buildSourceBlock([source]),
+          buildSourceBlock(sources),
       },
     ],
     900,
   )
 }
 
+/**
+ * Revision covers a topic, not one chapter, so each item gets a share of the
+ * prompt: a subject with several chapters stays represented instead of the
+ * first one filling the budget.
+ */
+function revisionBlock(sources: NoteSource[]): string {
+  const budget = 14_000
+  const share = Math.max(900, Math.floor(budget / Math.max(sources.length, 1)))
+  const parts: string[] = []
+  let left = budget
+  for (const [index, source] of sources.entries()) {
+    const text = source.body.slice(0, Math.min(share, left))
+    if (!text.trim()) continue
+    left -= text.length
+    parts.push(`[${index + 1}] ${source.title}\n${text}`)
+    if (left <= 0) break
+  }
+  return parts.join('\n\n')
+}
+
 /** Revision cards: strict Q/A pairs the app can flip through. */
 export function revisionCards(
   provider: Provider,
-  source: NoteSource,
+  sources: NoteSource[],
   context = '',
 ): Promise<string> {
   return complete(
@@ -215,10 +235,11 @@ export function revisionCards(
         role: 'user',
         content:
           `Write revision flashcards from the material below: 6 to 12 cards covering the key facts, definitions and steps. ` +
+          `If it covers more than one chapter or topic, spread the cards across all of them instead of dwelling on the first. ` +
           `Use exactly this format, one card after another, with a blank line between cards and nothing else:\n` +
           `Q: <one short question>\nA: <the answer, one or two sentences>\n\n` +
           `Use only what the material says. No numbering, no headings and no commentary.\n\n` +
-          buildSourceBlock([source]),
+          revisionBlock(sources),
       },
     ],
     1_200,
@@ -228,7 +249,7 @@ export function revisionCards(
 /** A slide outline: headings and a few bullets, one slide per --- line. */
 export function revisionSlides(
   provider: Provider,
-  source: NoteSource,
+  sources: NoteSource[],
   context = '',
 ): Promise<string> {
   return complete(
@@ -239,11 +260,12 @@ export function revisionSlides(
         role: 'user',
         content:
           `Turn the material below into a short presentation for revising it: 6 to 10 slides. ` +
+          `If it covers more than one chapter or topic, give each of them at least one slide. ` +
           `Start each slide with a heading line beginning "# " and add at most four "- " bullets of a few words each. ` +
           `Separate slides with a line containing only ---. ` +
           `Begin with a title slide, give one idea per slide, and end with a "# Check yourself" slide of three questions. ` +
           `Use only what the material says. No other text.\n\n` +
-          buildSourceBlock([source]),
+          revisionBlock(sources),
       },
     ],
     1_400,

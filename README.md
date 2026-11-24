@@ -53,8 +53,9 @@ bun start         # http://localhost:3000
 - **Syllabus** — NCERT chapters ticked off per subject.
 - **Notes** — private notes per subject.
 - **Library** — your own material: paste a chapter or add a text file, search
-  inside it, ask questions answered only from it with citations, and turn it
-  into revision notes, practice questions, flashcards or a slide deck.
+  inside it, ask questions answered only from it with citations, and turn one
+  item or a whole subject into revision notes, practice questions, flashcards or
+  a slide deck.
 - **Your data** — download subjects, timetable, tasks, notes, day check-ins
   (with their AI briefs), syllabus, library material and the library
   conversations about it as one JSON file, load one back, or delete the whole
@@ -136,6 +137,9 @@ subject. Then:
 - **Flashcards** and **Slides** turn it into revision material: 6 to 12 question
   and answer cards, or a 6 to 10 slide outline. Both are saved in Notes, and
   **Revise** on that note flips through the cards or steps through the slides.
+  Choose a subject under **Work from** and the same buttons cover every chapter
+  of that subject in one set, each item given a share of the prompt so a whole
+  topic is represented.
 
 Matching is by keyword: material is cut into paragraphs, and the paragraphs
 sharing the rarest words with your question are the ones sent. Nothing is

@@ -296,6 +296,62 @@ test('the library says so when no AI provider is configured', async () => {
   expect(transform.status).toBe(503)
 })
 
+test('a subject turns all of its material into one deck', async () => {
+  stubAi('Q: What drives photosynthesis?\nA: Chlorophyll absorbs light.')
+  const { call } = harness()
+  const created = await call('/api/subjects', 'POST', {
+    name: 'Biology',
+    color: '#3f6b52',
+  })
+  const { subject } = (await created.json()) as { subject: Subject }
+  for (const title of ['Chapter 5', 'Chapter 6']) {
+    expect(
+      (
+        await call('/api/sources', 'POST', {
+          title,
+          subjectId: subject.id,
+          body: PHOTOSYNTHESIS,
+        })
+      ).status,
+    ).toBe(201)
+  }
+
+  const deck = await call('/api/library/transform', 'POST', {
+    subjectId: subject.id,
+    kind: 'flashcards',
+  })
+  expect(deck.status).toBe(200)
+  const { note } = (await deck.json()) as { note: Note }
+  expect(note.title).toBe('Flashcards · Biology')
+  expect(note.subjectId).toBe(subject.id)
+
+  // An empty subject asks for material instead of inventing cards.
+  const other = await call('/api/subjects', 'POST', {
+    name: 'History',
+    color: '#123456',
+  })
+  const { subject: history } = (await other.json()) as { subject: Subject }
+  expect(
+    (
+      await call('/api/library/transform', 'POST', {
+        subjectId: history.id,
+        kind: 'slides',
+      })
+    ).status,
+  ).toBe(400)
+
+  // One item and a subject at the same time is a question with two answers.
+  expect(
+    (
+      await call('/api/library/transform', 'POST', {
+        sourceId: 'not-both',
+        subjectId: subject.id,
+        kind: 'slides',
+      })
+    ).status,
+  ).toBe(400)
+})
+
 test('material can become flashcards or a slide outline', async () => {
   stubAi('Q: What drives photosynthesis?\nA: Chlorophyll absorbs light.')
   const { call } = harness()

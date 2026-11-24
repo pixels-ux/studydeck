@@ -144,9 +144,9 @@ Limits are 200 items at 20,000 characters each, and AI work shares the same 40
 actions a day. Adding, reading and searching material needs no AI key; asking
 and transforming do.
 
-The notebook idea, with sources, cited chat, search and transformations, is
-adapted from [Open Notebook](https://github.com/lfnovo/open-notebook) (MIT) and
-reimplemented for one local workspace on SQLite.
+Material, the chat about it and the transformations all live in the same local
+SQLite file as the rest of your workspace, so there is no separate notebook
+service to run and nothing is sent away to be indexed.
 
 ## AI study desk
 

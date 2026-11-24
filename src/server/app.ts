@@ -454,6 +454,12 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   /** Everything the student owns, in one file they can keep. */
   app.get('/api/export', async (c) => {
     const data = await workspace(db, env, LOCAL_OWNER)
+    const days = await db
+      .prepare(
+        `SELECT ${dayLogColumns} FROM day_logs WHERE owner_sub = ? ORDER BY date ASC`,
+      )
+      .bind(LOCAL_OWNER)
+      .all<DayLogRow>()
     const today = new Date().toISOString().slice(0, 10)
     return c.body(
       JSON.stringify(
@@ -466,6 +472,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
           entries: data.entries,
           tasks: data.tasks,
           notes: data.notes,
+          days: days.results.map(mapDayLog),
           syllabus: data.syllabus,
           sources: data.sources,
         },

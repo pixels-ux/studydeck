@@ -55,8 +55,9 @@ bun start         # http://localhost:3000
 - **Library** — your own material: paste a chapter or add a text file, search
   inside it, ask questions answered only from it with citations, and turn it
   into revision notes or practice questions.
-- **Your data** — download subjects, timetable, tasks, notes and syllabus as one
-  JSON file, or delete the whole workspace.
+- **Your data** — download subjects, timetable, tasks, notes, day check-ins
+  (with their AI briefs) and syllabus as one JSON file, or delete the whole
+  workspace.
 - **Calendar** — export the week and the revision plan as an `.ics` file for
   Google Calendar, Apple Calendar or Outlook.
 - **AI study desk** — summarise your notes into revision points, or ask a
@@ -74,8 +75,8 @@ DATABASE_PATH=~/Documents/studydeck.db bun run dev
 ```
 
 The in-app **Download a backup** button in Class setup writes the same content as
-JSON, and **Delete everything** empties the file without touching your notes in
-any other app.
+JSON, day check-ins included, and **Delete everything** empties the file without
+touching your notes in any other app.
 
 There is no login: the app trusts whoever can open <http://localhost:3000>. It
 binds to all interfaces by default so it works in a container; on a shared

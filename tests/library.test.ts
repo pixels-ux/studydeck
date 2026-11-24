@@ -211,6 +211,38 @@ test('the library stores material, cites it, searches it and makes notes', async
   ).toBe(400)
 })
 
+test('a library question and its cited answer travel in the backup', async () => {
+  stubAi()
+  const { call } = harness()
+
+  const created = await call('/api/sources', 'POST', {
+    title: 'Life processes',
+    body: PHOTOSYNTHESIS,
+  })
+  expect(created.status).toBe(201)
+  const { source } = (await created.json()) as { source: Source }
+
+  const asked = await call('/api/library/ask', 'POST', {
+    question: 'How does chlorophyll use light?',
+  })
+  expect(asked.status).toBe(200)
+
+  const exported = (await (await call('/api/export')).json()) as {
+    library: LibraryMessage[]
+  }
+  expect(exported.library.map((message) => message.role)).toEqual([
+    'student',
+    'assistant',
+  ])
+  expect(exported.library[0]!.body).toBe('How does chlorophyll use light?')
+  expect(exported.library[1]!.body).toContain('Chlorophyll absorbs light')
+  expect(exported.library[1]!.citations[0]).toMatchObject({
+    index: 1,
+    sourceId: source.id,
+    sourceTitle: 'Life processes',
+  })
+})
+
 test('material follows its subject, travels in the backup and is reset', async () => {
   const { call, data } = harness()
 

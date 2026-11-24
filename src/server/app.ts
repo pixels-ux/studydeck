@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { syllabusBrief, unitsFor } from '../shared/curriculum.ts'
 import type {
+  Citation,
   DayCovered,
   DayHomework,
   DayLog,
@@ -340,6 +341,318 @@ function insertEntry(
     )
 }
 
+/*
+ * Reading a backup back in. Every row is held to the same limits as a typed
+ * row, then merged with what is already here: an id that exists, a day that
+ * was already checked in and a class setup that was already saved all win, and
+ * nothing is ever deleted.
+ */
+
+const IMPORT_PATH = '/api/import'
+const MAX_IMPORT_BYTES = 32 * 1024 * 1024
+const MAX_IMPORT_STATEMENTS = 5_000
+const BACKUP_VERSION = 1
+const MAX_TIME = 9_000_000_000_000
+const MAX_LIBRARY_BODY = 8_000
+const MAX_CHAPTER = 200
+
+const IMPORT_FAILED = 'That file could not be read as a Studydeck backup.'
+
+type ImportSubject = { id: string; input: SubjectInput; createdAt: number }
+type ImportBlock = { id: string; input: EntryInput }
+type ImportTask = { id: string; input: TaskInput; createdAt: number }
+type ImportNote = {
+  id: string
+  input: NoteInput
+  createdAt: number
+  updatedAt: number
+}
+type ImportSource = {
+  id: string
+  input: SourceInput
+  createdAt: number
+  updatedAt: number
+}
+type ImportMessage = {
+  id: string
+  subjectId: string | null
+  role: 'student' | 'assistant'
+  body: string
+  citations: Citation[]
+  createdAt: number
+}
+type ImportDay = { log: Omit<DayLog, 'updatedAt'>; updatedAt: number }
+type ImportTick = { subjectId: string; chapter: string; doneAt: number }
+type ImportProfile = {
+  classLevel: number
+  schoolDays: number[]
+  schoolStart: number
+  schoolEnd: number
+  periodLength: number
+  studyHours: number
+  setupAt: number
+}
+type Backup = {
+  profile: ImportProfile | null
+  subjects: ImportSubject[]
+  entries: ImportBlock[]
+  tasks: ImportTask[]
+  notes: ImportNote[]
+  sources: ImportSource[]
+  library: ImportMessage[]
+  days: ImportDay[]
+  syllabus: ImportTick[]
+}
+type ImportCounts = {
+  subjects: number
+  entries: number
+  tasks: number
+  notes: number
+  sources: number
+  library: number
+  days: number
+  syllabus: number
+  profile: number
+}
+
+const emptyCounts = (): ImportCounts => ({
+  subjects: 0,
+  entries: 0,
+  tasks: 0,
+  notes: 0,
+  sources: 0,
+  library: 0,
+  days: 0,
+  syllabus: 0,
+  profile: 0,
+})
+
+/** A missing collection is empty; a present one must be a list of objects. */
+function backupRecords(
+  value: unknown,
+  max: number,
+): Record<string, unknown>[] | null {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value) || value.length > max) return null
+  const rows: Record<string, unknown>[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    rows.push(item as Record<string, unknown>)
+  }
+  return rows
+}
+
+const stamp = (value: unknown): number | null => whole(value, 0, MAX_TIME)
+
+/** Citations are labels here: a source that is missing is still readable. */
+function parseCitations(value: unknown): Citation[] {
+  if (!Array.isArray(value)) return []
+  const citations: Citation[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    const record = item as Record<string, unknown>
+    const index = whole(record.index, 1, 99)
+    const sourceId = identifier(record.sourceId)
+    const sourceTitle = clean(record.sourceTitle, 120)
+    if (index === null || !sourceId || !sourceTitle) continue
+    if (citations.some((citation) => citation.sourceId === sourceId)) continue
+    citations.push({ index, sourceId, sourceTitle })
+  }
+  return citations
+}
+
+function parseImportProfile(
+  value: unknown,
+): ImportProfile | null | undefined {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const classLevel = whole(record.classLevel, 6, 12)
+  const schoolStart = whole(record.schoolStart, 0, 1439)
+  const schoolEnd = whole(record.schoolEnd, 1, 1440)
+  const periodLength = whole(record.periodLength, 20, 120)
+  const studyHours =
+    typeof record.studyHours === 'number' &&
+    record.studyHours >= 1 &&
+    record.studyHours <= 10
+      ? record.studyHours
+      : null
+  const schoolDays = Array.isArray(record.schoolDays)
+    ? record.schoolDays.filter(
+        (day): day is number =>
+          typeof day === 'number' &&
+          Number.isInteger(day) &&
+          day >= 0 &&
+          day <= 6,
+      )
+    : null
+  const setupAt = stamp(record.setupAt)
+  if (
+    classLevel === null ||
+    schoolStart === null ||
+    schoolEnd === null ||
+    schoolEnd <= schoolStart ||
+    periodLength === null ||
+    studyHours === null ||
+    !schoolDays ||
+    schoolDays.length === 0 ||
+    setupAt === null
+  )
+    return undefined
+  return {
+    classLevel,
+    schoolDays: [...new Set(schoolDays)].sort((a, b) => a - b),
+    schoolStart,
+    schoolEnd,
+    periodLength,
+    studyHours,
+    setupAt,
+  }
+}
+
+function parseBackup(
+  body: Record<string, unknown>,
+): { backup: Backup } | { error: string } {
+  if (body.app !== 'Studydeck')
+    return { error: 'That file was not made by Studydeck.' }
+  if (body.version !== BACKUP_VERSION)
+    return {
+      error: 'That backup comes from a different version of Studydeck.',
+    }
+
+  const subjectList = backupRecords(body.subjects, 20)
+  if (!subjectList) return { error: IMPORT_FAILED }
+  const subjects: ImportSubject[] = []
+  for (const record of subjectList) {
+    const id = identifier(record.id)
+    const input = parseSubject(record)
+    const createdAt = stamp(record.createdAt)
+    if (!id || !input || createdAt === null || subjects.some((row) => row.id === id))
+      return { error: 'That backup has a subject Studydeck could not read.' }
+    subjects.push({ id, input, createdAt })
+  }
+
+  const entryList = backupRecords(body.entries, 800)
+  if (!entryList) return { error: IMPORT_FAILED }
+  const entries: ImportBlock[] = []
+  for (const record of entryList) {
+    const id = identifier(record.id)
+    const input = parseEntry(record)
+    if (!id || !input || entries.some((row) => row.id === id))
+      return { error: 'That backup has a timetable block Studydeck could not read.' }
+    entries.push({ id, input })
+  }
+
+  const taskList = backupRecords(body.tasks, 300)
+  if (!taskList) return { error: IMPORT_FAILED }
+  const tasks: ImportTask[] = []
+  for (const record of taskList) {
+    const id = identifier(record.id)
+    const input = parseTask(record)
+    const createdAt = stamp(record.createdAt)
+    if (!id || !input || createdAt === null || tasks.some((row) => row.id === id))
+      return { error: 'That backup has a task Studydeck could not read.' }
+    tasks.push({ id, input, createdAt })
+  }
+
+  const noteList = backupRecords(body.notes, 200)
+  if (!noteList) return { error: IMPORT_FAILED }
+  const notes: ImportNote[] = []
+  for (const record of noteList) {
+    const id = identifier(record.id)
+    const input = parseNote(record)
+    const createdAt = stamp(record.createdAt)
+    if (!id || !input || createdAt === null || notes.some((row) => row.id === id))
+      return { error: 'That backup has a note Studydeck could not read.' }
+    notes.push({
+      id,
+      input,
+      createdAt,
+      updatedAt: stamp(record.updatedAt) ?? createdAt,
+    })
+  }
+
+  const sourceList = backupRecords(body.sources, 300)
+  if (!sourceList) return { error: IMPORT_FAILED }
+  const sources: ImportSource[] = []
+  for (const record of sourceList) {
+    const id = identifier(record.id)
+    const input = parseSource(record)
+    const createdAt = stamp(record.createdAt)
+    if (!id || !input || createdAt === null || sources.some((row) => row.id === id))
+      return { error: 'That backup has library material Studydeck could not read.' }
+    sources.push({
+      id,
+      input,
+      createdAt,
+      updatedAt: stamp(record.updatedAt) ?? createdAt,
+    })
+  }
+
+  const messageList = backupRecords(body.library, 2_000)
+  if (!messageList) return { error: IMPORT_FAILED }
+  const library: ImportMessage[] = []
+  for (const record of messageList) {
+    const id = identifier(record.id)
+    const role =
+      record.role === 'assistant'
+        ? 'assistant'
+        : record.role === 'student'
+          ? 'student'
+          : null
+    const text = typeof record.body === 'string' ? record.body.slice(0, MAX_LIBRARY_BODY) : ''
+    const subjectId = optionalIdentifier(record.subjectId)
+    const createdAt = stamp(record.createdAt)
+    if (
+      !id ||
+      !role ||
+      !text.trim() ||
+      subjectId === undefined ||
+      createdAt === null ||
+      library.some((row) => row.id === id)
+    )
+      return { error: 'That backup has a library message Studydeck could not read.' }
+    library.push({
+      id,
+      subjectId,
+      role,
+      body: text,
+      citations: parseCitations(record.citations),
+      createdAt,
+    })
+  }
+
+  const dayList = backupRecords(body.days, 3_660)
+  if (!dayList) return { error: IMPORT_FAILED }
+  const days: ImportDay[] = []
+  for (const record of dayList) {
+    const log = parseDayLog(record)
+    const updatedAt = stamp(record.updatedAt)
+    if (!log || updatedAt === null || days.some((row) => row.log.date === log.date))
+      return { error: 'That backup has a day check-in Studydeck could not read.' }
+    days.push({ log, updatedAt })
+  }
+
+  const tickList = backupRecords(body.syllabus, 2_000)
+  if (!tickList) return { error: IMPORT_FAILED }
+  const syllabus: ImportTick[] = []
+  for (const record of tickList) {
+    const subjectId = identifier(record.subjectId)
+    const chapter = clean(record.chapter, MAX_CHAPTER)
+    if (!subjectId || !chapter)
+      return { error: 'That backup has a syllabus tick Studydeck could not read.' }
+    syllabus.push({ subjectId, chapter, doneAt: stamp(record.doneAt) ?? Date.now() })
+  }
+
+  const profile = parseImportProfile(body.profile)
+  if (profile === undefined)
+    return { error: 'That backup has a class setup Studydeck could not read.' }
+
+  return {
+    backup: { profile, subjects, entries, tasks, notes, sources, library, days, syllabus },
+  }
+}
+
 /**
  * The app runs on the student's own machine: one workspace, no accounts. Every
  * write still has to come from this origin so a stray web page in the same
@@ -355,11 +668,20 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     await ensureSchema(db)
     await next()
   })
+  const smallBody = bodyLimit({
+    maxSize: 256 * 1024,
+    onError: (c) => c.json({ error: 'Request is too large.' }, 413),
+  })
+  // A backup is bigger than any typed request, so only its route may be.
+  app.use('/api/*', async (c, next) => {
+    if (c.req.path === IMPORT_PATH) return next()
+    return smallBody(c, next)
+  })
   app.use(
-    '/api/*',
+    IMPORT_PATH,
     bodyLimit({
-      maxSize: 256 * 1024,
-      onError: (c) => c.json({ error: 'Request is too large.' }, 413),
+      maxSize: MAX_IMPORT_BYTES,
+      onError: (c) => c.json({ error: 'That backup is too large to import.' }, 413),
     }),
   )
 
@@ -492,6 +814,326 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         'Content-Disposition': `attachment; filename="studydeck-${today}.json"`,
       },
     )
+  })
+
+  /**
+   * Loads a backup back in, additively. A row whose id is already here, a day
+   * that was already checked in and a class setup that was already saved are
+   * kept; everything else is inserted in one batch, so a bad file cannot leave
+   * half a workspace behind.
+   */
+  app.post(IMPORT_PATH, async (c) => {
+    const body = await readBody(c.req.raw)
+    if (!body)
+      return c.json(
+        { error: 'That file could not be read. Choose a Studydeck backup (.json).' },
+        400,
+      )
+    const parsed = parseBackup(body)
+    if ('error' in parsed) return c.json({ error: parsed.error }, 400)
+    const backup = parsed.backup
+    const owner = LOCAL_OWNER
+
+    const [
+      subjectRows,
+      entryRows,
+      taskRows,
+      noteRows,
+      sourceRows,
+      messageRows,
+      dayRows,
+      tickRows,
+      profile,
+    ] = await Promise.all([
+      db
+        .prepare('SELECT id, name FROM subjects WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ id: string; name: string }>(),
+      db
+        .prepare('SELECT id FROM entries WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ id: string }>(),
+      db
+        .prepare('SELECT id FROM tasks WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ id: string }>(),
+      db
+        .prepare('SELECT id FROM study_notes WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ id: string }>(),
+      db
+        .prepare('SELECT id FROM sources WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ id: string }>(),
+      db
+        .prepare('SELECT id FROM library_messages WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ id: string }>(),
+      db
+        .prepare('SELECT date FROM day_logs WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ date: string }>(),
+      db
+        .prepare('SELECT subject_id, chapter FROM syllabus_progress WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ subject_id: string; chapter: string }>(),
+      readProfile(db, owner),
+    ])
+
+    const existingSubjectIds = new Set(subjectRows.results.map((row) => row.id))
+    const byName = new Map(
+      subjectRows.results.map((row) => [row.name.toLowerCase(), row.id]),
+    )
+    const entryIds = new Set(entryRows.results.map((row) => row.id))
+    const taskIds = new Set(taskRows.results.map((row) => row.id))
+    const noteIds = new Set(noteRows.results.map((row) => row.id))
+    const sourceIds = new Set(sourceRows.results.map((row) => row.id))
+    const messageIds = new Set(messageRows.results.map((row) => row.id))
+    const dayDates = new Set(dayRows.results.map((row) => row.date))
+    const tickKeys = new Set(
+      tickRows.results.map((row) => `${row.subject_id}::${row.chapter}`),
+    )
+
+    const added = emptyCounts()
+    const skipped = emptyCounts()
+    const statements: SqlStatement[] = []
+    const subjectMap = new Map<string, string>()
+
+    for (const subject of backup.subjects) {
+      const known = existingSubjectIds.has(subject.id)
+      const sameName = byName.get(subject.input.name.toLowerCase())
+      const target = known ? subject.id : sameName
+      if (target) {
+        subjectMap.set(subject.id, target)
+        skipped.subjects += 1
+        continue
+      }
+      subjectMap.set(subject.id, subject.id)
+      byName.set(subject.input.name.toLowerCase(), subject.id)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO subjects (id, owner_sub, name, color, teacher, exam_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            subject.id,
+            owner,
+            subject.input.name,
+            subject.input.color,
+            subject.input.teacher,
+            subject.input.examDate,
+            subject.createdAt,
+          ),
+      )
+      added.subjects += 1
+    }
+
+    /** A reference to material that is not here becomes "no subject". */
+    const resolveSubject = (id: string | null): string | null => {
+      if (!id) return null
+      const mapped = subjectMap.get(id)
+      if (mapped) return mapped
+      return existingSubjectIds.has(id) ? id : null
+    }
+
+    for (const block of backup.entries) {
+      if (entryIds.has(block.id)) {
+        skipped.entries += 1
+        continue
+      }
+      entryIds.add(block.id)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO entries (id, owner_sub, subject_id, title, kind, day, start_min, end_min, room, plan, date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            block.id,
+            owner,
+            resolveSubject(block.input.subjectId),
+            block.input.title,
+            block.input.kind,
+            block.input.day,
+            block.input.startMin,
+            block.input.endMin,
+            block.input.room,
+            block.input.plan,
+            block.input.date,
+          ),
+      )
+      added.entries += 1
+    }
+
+    for (const task of backup.tasks) {
+      if (taskIds.has(task.id)) {
+        skipped.tasks += 1
+        continue
+      }
+      taskIds.add(task.id)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO tasks (id, owner_sub, subject_id, title, due_date, priority, done, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            task.id,
+            owner,
+            resolveSubject(task.input.subjectId),
+            task.input.title,
+            task.input.dueDate,
+            task.input.priority,
+            task.input.done ? 1 : 0,
+            task.input.details,
+            task.createdAt,
+          ),
+      )
+      added.tasks += 1
+    }
+
+    for (const note of backup.notes) {
+      if (noteIds.has(note.id)) {
+        skipped.notes += 1
+        continue
+      }
+      noteIds.add(note.id)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO study_notes (id, owner_sub, subject_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            note.id,
+            owner,
+            resolveSubject(note.input.subjectId),
+            note.input.title,
+            note.input.body,
+            note.createdAt,
+            note.updatedAt,
+          ),
+      )
+      added.notes += 1
+    }
+
+    for (const source of backup.sources) {
+      if (sourceIds.has(source.id)) {
+        skipped.sources += 1
+        continue
+      }
+      sourceIds.add(source.id)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO sources (id, owner_sub, subject_id, title, origin, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            source.id,
+            owner,
+            resolveSubject(source.input.subjectId),
+            source.input.title,
+            source.input.origin,
+            source.input.body,
+            source.createdAt,
+            source.updatedAt,
+          ),
+      )
+      added.sources += 1
+    }
+
+    for (const message of backup.library) {
+      if (messageIds.has(message.id)) {
+        skipped.library += 1
+        continue
+      }
+      messageIds.add(message.id)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO library_messages (id, owner_sub, subject_id, role, body, citations, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            message.id,
+            owner,
+            resolveSubject(message.subjectId),
+            message.role,
+            message.body,
+            JSON.stringify(message.citations),
+            message.createdAt,
+          ),
+      )
+      added.library += 1
+    }
+
+    for (const day of backup.days) {
+      if (dayDates.has(day.log.date)) {
+        skipped.days += 1
+        continue
+      }
+      dayDates.add(day.log.date)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO day_logs (owner_sub, date, school, coaching, homework, free_from, free_until, brief, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            owner,
+            day.log.date,
+            JSON.stringify(day.log.school),
+            JSON.stringify(day.log.coaching),
+            JSON.stringify(day.log.homework),
+            day.log.freeFrom,
+            day.log.freeUntil,
+            day.log.brief,
+            day.updatedAt,
+          ),
+      )
+      added.days += 1
+    }
+
+    for (const tick of backup.syllabus) {
+      const subjectId = resolveSubject(tick.subjectId)
+      if (!subjectId || tickKeys.has(`${subjectId}::${tick.chapter}`)) {
+        skipped.syllabus += 1
+        continue
+      }
+      tickKeys.add(`${subjectId}::${tick.chapter}`)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO syllabus_progress (owner_sub, subject_id, chapter, done_at) VALUES (?, ?, ?, ?)',
+          )
+          .bind(owner, subjectId, tick.chapter, tick.doneAt),
+      )
+      added.syllabus += 1
+    }
+
+    // The class setup drives the whole timetable, so an existing one wins.
+    if (backup.profile && !profile) {
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO profiles (owner_sub, class_level, school_days, school_start, school_end, period_length, study_hours, setup_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            owner,
+            backup.profile.classLevel,
+            backup.profile.schoolDays.join(','),
+            backup.profile.schoolStart,
+            backup.profile.schoolEnd,
+            backup.profile.periodLength,
+            backup.profile.studyHours,
+            backup.profile.setupAt,
+          ),
+      )
+      added.profile += 1
+    } else if (backup.profile) {
+      skipped.profile += 1
+    }
+
+    if (statements.length > MAX_IMPORT_STATEMENTS)
+      return c.json({ error: 'That backup is too large to import at once.' }, 400)
+
+    if (statements.length) await db.batch(statements)
+    return c.json({ added, skipped, workspace: await workspace(db, env, owner) })
   })
 
   /** The weekly timetable and revision plan, ready for any calendar app. */

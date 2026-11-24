@@ -44,6 +44,8 @@ export type Workspace = {
   appendLibrary: (messages: LibraryMessage[]) => void
   clearLibrary: (subjectId: string | null) => Promise<void>
   applySetup: (payload: SetupPayload) => Promise<void>
+  /** Reloads the workspace, e.g. after a backup was merged in. */
+  refresh: () => Promise<void>
   setAiRemaining: (remaining: number) => void
 }
 
@@ -281,6 +283,10 @@ export function WorkspaceProvider({
     setData(result)
   }, [])
 
+  const refresh = useCallback(async () => {
+    setData(await api<WorkspaceData>('/api/data'))
+  }, [])
+
   const setAiRemaining = useCallback((remaining: number) => {
     setData((current) => ({
       ...current,
@@ -308,6 +314,7 @@ export function WorkspaceProvider({
       appendLibrary,
       clearLibrary,
       applySetup,
+      refresh,
       setAiRemaining,
     }),
     [
@@ -329,6 +336,7 @@ export function WorkspaceProvider({
       appendLibrary,
       clearLibrary,
       applySetup,
+      refresh,
       setAiRemaining,
     ],
   )

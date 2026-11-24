@@ -57,7 +57,8 @@ bun start         # http://localhost:3000
   into revision notes or practice questions.
 - **Your data** — download subjects, timetable, tasks, notes, day check-ins
   (with their AI briefs), syllabus, library material and the library
-  conversations about it as one JSON file, or delete the whole workspace.
+  conversations about it as one JSON file, load one back, or delete the whole
+  workspace.
 - **Calendar** — export the week and the revision plan as an `.ics` file for
   Google Calendar, Apple Calendar or Outlook.
 - **AI study desk** — summarise your notes into revision points, or ask a
@@ -78,6 +79,14 @@ The in-app **Download a backup** button in Class setup writes the same content a
 JSON — day check-ins and the library's questions and answers included — and
 **Delete everything** empties the file without touching your notes in any other
 app.
+
+**Import a backup** reads a file Studydeck wrote and adds it to what you have. It
+never deletes anything: a subject, block, task, note, material, library message
+or syllabus tick whose id is already here is left alone, a subject with the same
+name is reused instead of duplicated, and a day you have already checked in or a
+class setup you have already saved is kept as it is. The whole file is written in
+one transaction, so a damaged backup leaves the workspace untouched. To restore
+over an old workspace, **Delete everything** first and then import.
 
 There is no login: the app trusts whoever can open <http://localhost:3000>. It
 binds to all interfaces by default so it works in a container; on a shared

@@ -21,8 +21,33 @@ type Test = { id: string; name: string; date: string; subjects: string[] }
 
 const STEPS = ['Your class', 'Your day', 'Your tests', 'Your timetable']
 
+const IMPORT_LABELS: Record<string, string> = {
+  subjects: 'subject',
+  entries: 'timetable block',
+  tasks: 'task',
+  notes: 'note',
+  sources: 'library item',
+  library: 'library message',
+  days: 'day check-in',
+  syllabus: 'syllabus tick',
+  profile: 'class setup',
+}
+
+const importCount = (key: string, value: number): string => {
+  const name = IMPORT_LABELS[key] ?? key
+  const plural = name.endsWith('y') ? `${name.slice(0, -1)}ies` : `${name}s`
+  return `${value} ${value === 1 ? name : plural}`
+}
+
+const describeImport = (counts: Record<string, number>): string => {
+  const parts = Object.entries(counts)
+    .filter(([, value]) => value > 0)
+    .map(([key, value]) => importCount(key, value))
+  return parts.length ? parts.join(', ') : 'nothing new'
+}
+
 export default function Setup({ onDone }: { onDone?: () => void }) {
-  const { data, applySetup } = useWorkspace()
+  const { data, applySetup, refresh } = useWorkspace()
   const existing = data.profile
   const [step, setStep] = useState(0)
   // The class is the student's answer, not ours: it stays empty until they pick.
@@ -79,7 +104,62 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
   ])
   const [busy, setBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [importError, setImportError] = useState('')
   const [error, setError] = useState('')
+
+  /** Adds a backup file to what is here; the server keeps anything it has. */
+  async function importBackup(file: File) {
+    setImporting(true)
+    setImportError('')
+    setNotice('')
+    try {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(await file.text())
+      } catch {
+        throw new Error('That file is not valid JSON.')
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('That file is not a Studydeck backup.')
+      const record = parsed as Record<string, unknown>
+      const count = (key: string) =>
+        Array.isArray(record[key]) ? (record[key] as unknown[]).length : 0
+      const holdings = [
+        'entries',
+        'days',
+        'subjects',
+        'tasks',
+        'notes',
+        'sources',
+        'library',
+        'syllabus',
+      ]
+        .filter((key) => count(key) > 0)
+        .map((key) => importCount(key, count(key)))
+        .filter(Boolean)
+        .join(', ')
+      const proceed = window.confirm(
+        `Add this backup to your workspace?\n\nIt holds ${holdings || 'no items'}. Anything you already have stays: a day you have checked in and a class setup you have saved are kept as they are.`,
+      )
+      if (!proceed) return
+      const result = await api<{
+        added: Record<string, number>
+        skipped: Record<string, number>
+      }>('/api/import', { method: 'POST', body: record })
+      await refresh()
+      setNotice(
+        `Imported ${describeImport(result.added)}. Kept as they were: ${describeImport(result.skipped)}.`,
+      )
+    } catch (e) {
+      setImportError(
+        e instanceof Error ? e.message : 'That backup could not be read.',
+      )
+    } finally {
+      setImporting(false)
+    }
+  }
 
   async function removeEverything() {
     if (
@@ -632,13 +712,28 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
           </div>
           <p className="muted">
             Keep a copy of your subjects, timetable, tasks, notes, day check-ins
-            (with their briefs) and library chats as one JSON file, or start
-            again from an empty workspace.
+            (with their briefs) and library chats as one JSON file, load one
+            back, or start again from an empty workspace. Loading a backup adds
+            to what you have and never deletes anything.
           </p>
           <div className="form-actions">
             <a className="btn ghost" href="/api/export" download>
               Download a backup
             </a>
+            <label className="btn ghost">
+              {importing ? 'Importing…' : 'Import a backup'}
+              <input
+                type="file"
+                accept=".json,application/json"
+                hidden
+                disabled={importing}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ''
+                  if (file) void importBackup(file)
+                }}
+              />
+            </label>
             <button
               type="button"
               className="btn ghost"
@@ -648,6 +743,8 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
               {deleting ? 'Deleting…' : 'Delete everything'}
             </button>
           </div>
+          {notice ? <p className="fineprint">{notice}</p> : null}
+          {importError ? <p className="error">{importError}</p> : null}
           <p className="fineprint">
             Deleting removes your data from the server and cannot be undone.
             Your account itself stays, so you can build a new timetable straight

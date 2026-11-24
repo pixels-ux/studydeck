@@ -198,6 +198,23 @@ test('the AI brief reads the saved day and is kept for the next visit', async ()
   expect(saved.log.brief).toContain('critical angle')
 })
 
+test('a saved check-in and its brief come back in the backup', async () => {
+  const { call } = harness()
+  const brief = 'Start with Exercise 4.2 while the refraction class is fresh.'
+  expect((await call('/api/day', 'PUT', { ...checkIn, brief })).status).toBe(200)
+
+  const exported = (await (await call('/api/export')).json()) as {
+    days: DayLog[]
+  }
+  expect(exported.days).toHaveLength(1)
+  expect(exported.days[0]!.date).toBe(DATE)
+  expect(exported.days[0]!.school[0]!.topic).toBe('Quadratic equations')
+  expect(exported.days[0]!.coaching?.topic).toBe('Refraction problems')
+  expect(exported.days[0]!.homework[0]!.minutes).toBe(45)
+  expect(exported.days[0]!.freeUntil).toBe(checkIn.freeUntil)
+  expect(exported.days[0]!.brief).toBe(brief)
+})
+
 test('a brief needs the day saved first, and an AI key', async () => {
   const { call } = harness()
   expect(

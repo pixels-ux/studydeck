@@ -31,6 +31,7 @@ import {
 } from './ai.ts'
 import { clearAiKey, effectiveProvider, readAiKey, saveAiKey } from './aiSettings.ts'
 import type { Env } from './env'
+import { documentKind, extractDocument } from './extract.ts'
 import { calendarFileName, timetableFile } from './ics.ts'
 import { chunkSource, MAX_SOURCE_CHARS, retrieve, search } from './library.ts'
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers.ts'
@@ -360,6 +361,8 @@ function insertEntry(
 
 const IMPORT_PATH = '/api/import'
 const MAX_IMPORT_BYTES = 32 * 1024 * 1024
+const EXTRACT_PATH = '/api/library/extract'
+const MAX_EXTRACT_BYTES = 25 * 1024 * 1024
 const MAX_IMPORT_STATEMENTS = 5_000
 const BACKUP_VERSION = 1
 const MAX_TIME = 9_000_000_000_000
@@ -682,9 +685,10 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     maxSize: 256 * 1024,
     onError: (c) => c.json({ error: 'Request is too large.' }, 413),
   })
-  // A backup is bigger than any typed request, so only its route may be.
+  // A backup and a real document are bigger than any typed request, so only
+  // their routes may be.
   app.use('/api/*', async (c, next) => {
-    if (c.req.path === IMPORT_PATH) return next()
+    if (c.req.path === IMPORT_PATH || c.req.path === EXTRACT_PATH) return next()
     return smallBody(c, next)
   })
   app.use(
@@ -692,6 +696,14 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     bodyLimit({
       maxSize: MAX_IMPORT_BYTES,
       onError: (c) => c.json({ error: 'That backup is too large to import.' }, 413),
+    }),
+  )
+  app.use(
+    EXTRACT_PATH,
+    bodyLimit({
+      maxSize: MAX_EXTRACT_BYTES,
+      onError: (c) =>
+        c.json({ error: 'That file is too large to read here.' }, 413),
     }),
   )
 
@@ -2015,6 +2027,57 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         502,
       )
     }
+  })
+
+  /**
+   * Reads a PDF, Word document or text file the student chose, so a chapter does
+   * not have to be copied out by hand. The text comes back for review; nothing
+   * is saved until they press Add to library.
+   */
+  app.post(EXTRACT_PATH, async (c) => {
+    const name = clean(c.req.query('name'), 160)
+    const bytes = new Uint8Array(await c.req.arrayBuffer())
+    if (!bytes.length) return c.json({ error: 'That file is empty.' }, 400)
+    const kind = documentKind(name, c.req.header('content-type') ?? '')
+    if (kind === 'doc')
+      return c.json(
+        {
+          error:
+            'That is an older Word file (.doc). Open it and save as .docx, then try again.',
+        },
+        400,
+      )
+    if (!kind)
+      return c.json(
+        { error: 'Choose a PDF, a .docx file or a plain text file.' },
+        400,
+      )
+
+    let text: string
+    try {
+      text = await extractDocument(bytes, kind)
+    } catch {
+      return c.json(
+        {
+          error:
+            'That file could not be read. It may be damaged or protected by a password.',
+        },
+        400,
+      )
+    }
+    if (!text)
+      return c.json(
+        {
+          error:
+            'There is no text in that file. A scanned PDF holds only pictures, so paste the text or use a PDF that has a text layer.',
+        },
+        400,
+      )
+    return c.json({
+      text: text.slice(0, MAX_SOURCE_CHARS),
+      characters: text.length,
+      truncated: text.length > MAX_SOURCE_CHARS,
+    })
   })
 
   /* The day: what was taught, what was set, and tonight's plan. */

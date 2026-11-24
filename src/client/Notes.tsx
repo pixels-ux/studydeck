@@ -37,6 +37,17 @@ export default function Notes() {
     }
   }, [selected?.id, selected?.updatedAt])
 
+  // A note found through the library search opens here.
+  useEffect(() => {
+    const wanted = sessionStorage.getItem('studydeck:note')
+    if (!wanted) return
+    sessionStorage.removeItem('studydeck:note')
+    if (data.notes.some((note) => note.id === wanted)) {
+      setSelectedId(wanted)
+      setCreating(false)
+    }
+  }, [])
+
   const dirty =
     creating ||
     !selected ||

@@ -124,7 +124,7 @@ export default function Shell() {
               {tab === 'work' && <Work />}
               {tab === 'syllabus' && <Syllabus />}
               {tab === 'notes' && <Notes />}
-              {tab === 'library' && <Library />}
+              {tab === 'library' && <Library onNavigate={go} />}
               {tab === 'desk' && <StudyDesk />}
             </>
           )}

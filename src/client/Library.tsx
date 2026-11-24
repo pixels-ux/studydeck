@@ -36,7 +36,22 @@ function Citations({ citations }: { citations: Citation[] }) {
   )
 }
 
-export default function Library() {
+/** A few words either side of the match, so a note hit reads like the others. */
+function snippetOf(text: string, query: string): string {
+  const lower = text.toLowerCase()
+  const at = lower.indexOf(query.toLowerCase())
+  if (at < 0) return text.slice(0, 120)
+  const start = Math.max(0, at - 50)
+  return `${start ? '…' : ''}${text
+    .slice(start, at + query.length + 70)
+    .trim()}…`
+}
+
+export default function Library({
+  onNavigate,
+}: {
+  onNavigate?: (tab: 'notes') => void
+}) {
   const {
     data,
     saveSource,
@@ -52,6 +67,7 @@ export default function Library() {
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState<SourceInput>(emptyDraft)
   const [saving, setSaving] = useState(false)
+  const [extracting, setExtracting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [question, setQuestion] = useState('')
@@ -88,12 +104,70 @@ export default function Library() {
     (source) => !scope || source.subjectId === scope,
   )
   const ready = data.ai.enabled && materialHere
+  const query = searchQuery.trim()
+  const noteHits =
+    hits === null || !query
+      ? []
+      : data.notes
+          .filter((note) =>
+            `${note.title} ${note.body}`
+              .toLowerCase()
+              .includes(query.toLowerCase()),
+          )
+          .slice(0, 5)
 
   async function pickFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
     setError('')
+    setNotice('')
+    const name = file.name.toLowerCase()
+    const document = /\.(pdf|docx?|txt|md|markdown|csv)$/.test(name)
+      ? /\.[^.]+$/.exec(name)![0]
+      : ''
+
+    if (document === '.pdf' || document === '.docx' || document === '.doc') {
+      setExtracting(true)
+      try {
+        const response = await fetch(
+          `/api/library/extract?name=${encodeURIComponent(file.name)}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': file.type || 'application/octet-stream',
+            },
+            body: file,
+          },
+        )
+        const payload = (await response.json().catch(() => null)) as {
+          text?: string
+          characters?: number
+          truncated?: boolean
+          error?: string
+        } | null
+        if (!response.ok)
+          throw new Error(payload?.error ?? 'That file could not be read.')
+        setAdding(true)
+        setDraft((current) => ({
+          ...current,
+          title:
+            current.title || file.name.replace(/\.[^.]+$/, '').slice(0, 120),
+          origin: file.name.slice(0, 120),
+          body: payload?.text ?? '',
+        }))
+        if (payload?.truncated)
+          setNotice(
+            `That file holds ${(payload.characters ?? 0).toLocaleString()} characters. The library takes ${MAX_CHARS.toLocaleString()} per item, so split it into chapters. The first part is in the box, ready to edit.`,
+          )
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'That file could not be read.')
+      } finally {
+        setExtracting(false)
+      }
+      return
+    }
+
     try {
       const text = await file.text()
       if (text.length > MAX_CHARS) {
@@ -110,7 +184,7 @@ export default function Library() {
         body: text,
       }))
     } catch {
-      setError('That file could not be read. Choose a .txt or .md file.')
+      setError('That file could not be read. Choose a PDF, .docx, .txt or .md file.')
     }
   }
 
@@ -369,10 +443,15 @@ export default function Library() {
                 </select>
               </label>
               <label className="field">
-                <span>Text file (.txt or .md), optional</span>
+                <span>
+                  {extracting
+                    ? 'Reading that file…'
+                    : 'A file: PDF, Word (.docx), .txt or .md, optional'}
+                </span>
                 <input
                   type="file"
-                  accept=".txt,.md,.markdown,.csv,text/plain,text/markdown"
+                  accept=".pdf,.docx,.txt,.md,.markdown,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+                  disabled={extracting}
                   onChange={(event) => void pickFile(event)}
                 />
               </label>
@@ -435,6 +514,28 @@ export default function Library() {
             ) : (
               <p className="empty-line">No material contains that phrase.</p>
             )
+          ) : null}
+          {noteHits.length ? (
+            <>
+              <p className="eyebrow">In your notes</p>
+              <ul className="hit-list">
+                {noteHits.map((note) => (
+                  <li key={note.id} className="hit">
+                    <button
+                      type="button"
+                      className="hit-open"
+                      onClick={() => {
+                        sessionStorage.setItem('studydeck:note', note.id)
+                        onNavigate?.('notes')
+                      }}
+                    >
+                      <strong>{note.title}</strong>
+                    </button>
+                    <span>{snippetOf(note.body, query)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : null}
 
           <input

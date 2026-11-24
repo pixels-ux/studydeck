@@ -124,10 +124,13 @@ understanding. The check-in and brief are included in the workspace reset.
 ## Library
 
 The library is a small notebook for material you are studying from. Open
-**Library**, paste a chapter or choose a `.txt`/`.md` file, and give it a
-subject. Then:
+**Library**, paste a chapter, choose a PDF, a Word `.docx` or a `.txt`/`.md`
+file, and give it a subject. Text is pulled out of the file for you to check
+before it is added; a scanned PDF has only pictures, so it asks for the text
+instead of saving an empty item. Then:
 
-- **Find** searches every paragraph and shows the sentence around the match.
+- **Find** searches every paragraph and shows the sentence around the match. It
+  also lists notes that contain the phrase, and choosing one opens it in Notes.
 - **Ask** sends only the paragraphs that match your question and asks for an
   answer from them alone. The answer cites them as `[1]`, `[2]` and a chip under
   it names the material used. The conversation is kept per subject, and **Start
@@ -144,9 +147,10 @@ subject. Then:
 Matching is by keyword: material is cut into paragraphs, and the paragraphs
 sharing the rarest words with your question are the ones sent. Nothing is
 embedded or uploaded for indexing, so there is no vector database to install.
-Limits are 200 items at 20,000 characters each, and AI work shares the same 40
-actions a day. Adding, reading and searching material needs no AI key; asking
-and transforming do.
+Limits are 200 items at 20,000 characters each, a 25 MB file for the reader,
+and AI work shares the same 40 actions a day. A long document is cut at 20,000
+characters with a note telling you to split it into chapters. Adding, reading and
+searching material needs no AI key; asking and transforming do.
 
 Material, the chat about it and the transformations all live in the same local
 SQLite file as the rest of your workspace, so there is no separate notebook

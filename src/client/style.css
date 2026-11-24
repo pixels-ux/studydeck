@@ -2352,3 +2352,19 @@ a.btn {
 .scope-revision p {
   margin: 0;
 }
+
+/* A note found by the library search */
+
+.hit-open {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.hit-open:hover {
+  text-decoration: underline;
+}

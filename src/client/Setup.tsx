@@ -631,9 +631,9 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
             <span className="count">Yours alone</span>
           </div>
           <p className="muted">
-            Keep a copy of your subjects, timetable, tasks, notes and day
-            check-ins (with their briefs) as one JSON file, or start again from
-            an empty workspace.
+            Keep a copy of your subjects, timetable, tasks, notes, day check-ins
+            (with their briefs) and library chats as one JSON file, or start
+            again from an empty workspace.
           </p>
           <div className="form-actions">
             <a className="btn ghost" href="/api/export" download>

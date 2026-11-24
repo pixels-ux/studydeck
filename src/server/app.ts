@@ -460,6 +460,12 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       )
       .bind(LOCAL_OWNER)
       .all<DayLogRow>()
+    const messages = await db
+      .prepare(
+        `SELECT ${messageColumns} FROM library_messages WHERE owner_sub = ? ORDER BY created_at ASC`,
+      )
+      .bind(LOCAL_OWNER)
+      .all<LibraryMessageRow>()
     const today = new Date().toISOString().slice(0, 10)
     return c.body(
       JSON.stringify(
@@ -475,6 +481,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
           days: days.results.map(mapDayLog),
           syllabus: data.syllabus,
           sources: data.sources,
+          library: messages.results.map(mapLibraryMessage),
         },
         null,
         2,

@@ -711,10 +711,10 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
             <span className="count">Yours alone</span>
           </div>
           <p className="muted">
-            Keep a copy of your subjects, timetable, tasks, notes, day check-ins
-            (with their briefs) and library chats as one JSON file, load one
-            back, or start again from an empty workspace. Loading a backup adds
-            to what you have and never deletes anything.
+            Keep a copy of every notebook — subjects, timetable, tasks, notes,
+            day check-ins (with their briefs) and library chats — as one JSON
+            file, load one back, or empty this notebook and start again. Loading
+            a backup adds to what you have and never deletes anything.
           </p>
           <div className="form-actions">
             <a className="btn ghost" href="/api/export" download>
@@ -746,9 +746,9 @@ export default function Setup({ onDone }: { onDone?: () => void }) {
           {notice ? <p className="fineprint">{notice}</p> : null}
           {importError ? <p className="error">{importError}</p> : null}
           <p className="fineprint">
-            Deleting removes your data from the server and cannot be undone.
-            Your account itself stays, so you can build a new timetable straight
-            away.
+            Deleting empties this notebook and cannot be undone. Your other
+            notebooks and your class setup stay, so you can build a new
+            timetable straight away.
           </p>
         </section>
       ) : null}

@@ -6,6 +6,7 @@ import type {
   DayCovered,
   DayHomework,
   DayLog,
+  Notebook,
   EntryKind,
   EntryInput,
   NoteInput,
@@ -37,20 +38,25 @@ import { chunkSource, MAX_SOURCE_CHARS, retrieve, search } from './library.ts'
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers.ts'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
+  BASE_OWNER,
   ensureSchema,
   mapDayLog,
   mapEntry,
   mapLibraryMessage,
   mapNote,
+  mapNotebook,
   mapProfile,
   mapSource,
   mapSubject,
   mapTask,
+  NOTEBOOK_TABLES,
   readProfile,
+  scopedOwner,
   type DayLogRow,
   type EntryRow,
   type LibraryMessageRow,
   type NoteRow,
+  type NotebookRow,
   type ProfileRow,
   type SourceRow,
   type SubjectRow,
@@ -58,9 +64,10 @@ import {
 } from './db.ts'
 
 /** One person uses one copy of Studydeck, so there is a single workspace. */
-const LOCAL_OWNER = 'local'
 
-type AppContext = { Variables: { db: SqlDatabase } }
+type AppContext = {
+  Variables: { db: SqlDatabase; owner: string; notebook: Notebook }
+}
 
 /** A write must come from this origin, so another tab cannot post behind us. */
 function sameOrigin(request: Request): boolean {
@@ -364,7 +371,7 @@ const MAX_IMPORT_BYTES = 32 * 1024 * 1024
 const EXTRACT_PATH = '/api/library/extract'
 const MAX_EXTRACT_BYTES = 25 * 1024 * 1024
 const MAX_IMPORT_STATEMENTS = 5_000
-const BACKUP_VERSION = 1
+const BACKUP_VERSION = 2
 const MAX_TIME = 9_000_000_000_000
 const MAX_LIBRARY_BODY = 8_000
 const MAX_CHAPTER = 200
@@ -523,16 +530,61 @@ function parseImportProfile(
   }
 }
 
+type BackupPart = {
+  /** null for a version 1 file, which has no notebook of its own. */
+  notebook: { id: string; name: string; createdAt: number } | null
+  backup: Backup
+}
+
+/** A version 1 file is one notebook; a version 2 file lists several. */
 function parseBackup(
   body: Record<string, unknown>,
-): { backup: Backup } | { error: string } {
+): { parts: BackupPart[]; profile: Backup['profile'] } | { error: string } {
   if (body.app !== 'Studydeck')
     return { error: 'That file was not made by Studydeck.' }
-  if (body.version !== BACKUP_VERSION)
-    return {
-      error: 'That backup comes from a different version of Studydeck.',
-    }
+  const version = whole(body.version, 1, 99)
+  if (version === null) return { error: 'That file was not made by Studydeck.' }
 
+  if (version === 1) {
+    const parsed = parseNotebookData(body)
+    if ('error' in parsed) return parsed
+    return {
+      parts: [{ notebook: null, backup: { ...parsed.backup, profile: null } }],
+      profile: parsed.backup.profile,
+    }
+  }
+  if (version !== BACKUP_VERSION)
+    return { error: 'That backup comes from a different version of Studydeck.' }
+
+  const profile = parseImportProfile(body.profile)
+  if (profile === undefined)
+    return { error: 'That backup has a class setup Studydeck could not read.' }
+  const list = backupRecords(body.notebooks, 20)
+  if (!list || !list.length) return { error: IMPORT_FAILED }
+  const parts: BackupPart[] = []
+  for (const record of list) {
+    const meta = record.notebook
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta))
+      return { error: IMPORT_FAILED }
+    const info = meta as Record<string, unknown>
+    const id = identifier(info.id)
+    const name = clean(info.name, 60)
+    const createdAt = stamp(info.createdAt)
+    if (!id || !name || createdAt === null) return { error: IMPORT_FAILED }
+    const parsed = parseNotebookData(record)
+    if ('error' in parsed) return parsed
+    parts.push({
+      notebook: { id, name, createdAt },
+      backup: { ...parsed.backup, profile: null },
+    })
+  }
+  return { parts, profile }
+}
+
+/** One notebook's worth of data, as a file from version 1 or 2 carries it. */
+function parseNotebookData(
+  body: Record<string, unknown>,
+): { backup: Backup } | { error: string } {
   const subjectList = backupRecords(body.subjects, 20)
   if (!subjectList) return { error: IMPORT_FAILED }
   const subjects: ImportSubject[] = []
@@ -674,11 +726,34 @@ function parseBackup(
 export function createApp(db: SqlDatabase, env: Env = {}) {
   const app = new Hono<AppContext>()
   app.get('/api/health', (c) => c.json({ ok: true }))
+  /** Every notebook on this computer, oldest first. */
+  async function notebooks(): Promise<Notebook[]> {
+    const rows = await db
+      .prepare(
+        'SELECT id, name, created_at FROM notebooks WHERE owner_sub = ? ORDER BY created_at ASC',
+      )
+      .bind(BASE_OWNER)
+      .all<NotebookRow>()
+    return rows.results.map(mapNotebook)
+  }
+
+  /** The notebook the request asked for, or the first one that exists. */
+  async function resolveNotebook(
+    requested: string | null | undefined,
+  ): Promise<Notebook> {
+    const all = await notebooks()
+    const match = requested ? all.find((item) => item.id === requested) : undefined
+    return match ?? all[0]!
+  }
+
   app.use('/api/*', async (c, next) => {
     c.header('Cache-Control', 'private, no-store')
     if (WRITE_METHODS.has(c.req.method) && !sameOrigin(c.req.raw))
       return c.json({ error: 'Cross-origin request refused.' }, 403)
     await ensureSchema(db)
+    const notebook = await resolveNotebook(c.req.header('x-notebook'))
+    c.set('notebook', notebook)
+    c.set('owner', scopedOwner(notebook.id))
     await next()
   })
   const smallBody = bodyLimit({
@@ -708,7 +783,12 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   )
 
   /** One payload shape for both the workspace load and a completed setup. */
-  async function workspace(db: SqlDatabase, env: Env, owner: string) {
+  async function workspace(
+    db: SqlDatabase,
+    env: Env,
+    owner: string,
+    notebook: Notebook,
+  ) {
     const [
       subjects,
       entries,
@@ -765,11 +845,13 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         .prepare(
           'SELECT class_level, school_days, school_start, school_end, period_length, study_hours, setup_at FROM profiles WHERE owner_sub = ?',
         )
-        .bind(owner)
+        .bind(BASE_OWNER)
         .first<ProfileRow>(),
     ])
-    const { provider } = await effectiveProvider(db, env, owner)
+    const { provider } = await effectiveProvider(db, env, BASE_OWNER)
     return {
+      notebooks: await notebooks(),
+      notebookId: notebook.id,
       subjects: subjects.results.map(mapSubject),
       entries: entries.results.map(mapEntry),
       tasks: tasks.results.map(mapTask),
@@ -783,7 +865,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       profile: profileRow ? mapProfile(profileRow) : null,
       ai: {
         enabled: Boolean(provider),
-        remaining: Math.max(0, AI_DAILY_LIMIT - (await usedAi(db, owner))),
+        remaining: Math.max(0, AI_DAILY_LIMIT - (await usedAi(db, BASE_OWNER))),
         limit: AI_DAILY_LIMIT,
         provider: provider?.label ?? null,
         model: provider?.model ?? null,
@@ -792,40 +874,112 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   }
 
   app.get('/api/data', async (c) =>
-    c.json(await workspace(db, env, LOCAL_OWNER)),
+    c.json(await workspace(db, env, c.get('owner'), c.get('notebook'))),
   )
 
-  /** Everything the student owns, in one file they can keep. */
+  /** Every notebook on this computer, with the one being looked at. */
+  app.get('/api/notebooks', async (c) =>
+    c.json({ notebooks: await notebooks(), current: c.get('notebook') }),
+  )
+
+  app.post('/api/notebooks', async (c) => {
+    const body = await readBody(c.req.raw)
+    const name = clean(body?.name, 60)
+    if (!name) return c.json({ error: 'Give the notebook a name.' }, 400)
+    const all = await notebooks()
+    if (all.length >= 20)
+      return c.json({ error: 'That is as many notebooks as Studydeck holds.' }, 400)
+    const notebook = { id: crypto.randomUUID(), name, createdAt: Date.now() }
+    await db
+      .prepare(
+        'INSERT INTO notebooks (id, owner_sub, name, created_at) VALUES (?, ?, ?, ?)',
+      )
+      .bind(notebook.id, BASE_OWNER, notebook.name, notebook.createdAt)
+      .run()
+    return c.json({ notebook, notebooks: await notebooks() })
+  })
+
+  app.patch('/api/notebooks/:id', async (c) => {
+    const body = await readBody(c.req.raw)
+    const id = identifier(c.req.param('id'))
+    const name = clean(body?.name, 60)
+    if (!id || !name)
+      return c.json({ error: 'Give the notebook a name.' }, 400)
+    const row = await db
+      .prepare(
+        'UPDATE notebooks SET name = ? WHERE id = ? AND owner_sub = ? RETURNING id, name, created_at',
+      )
+      .bind(name, id, BASE_OWNER)
+      .first<NotebookRow>()
+    if (!row) return c.json({ error: 'Notebook not found.' }, 404)
+    return c.json({ notebook: mapNotebook(row), notebooks: await notebooks() })
+  })
+
+  /** Removing a notebook removes its own rows and nothing else. */
+  app.delete('/api/notebooks/:id', async (c) => {
+    const id = identifier(c.req.param('id'))
+    const all = await notebooks()
+    if (!id || !all.some((item) => item.id === id))
+      return c.json({ error: 'Notebook not found.' }, 404)
+    if (all.length <= 1)
+      return c.json({ error: 'Keep at least one notebook.' }, 400)
+    const owner = scopedOwner(id)
+    await db.batch([
+      ...NOTEBOOK_TABLES.map((table) =>
+        db.prepare(`DELETE FROM ${table} WHERE owner_sub = ?`).bind(owner),
+      ),
+      db
+        .prepare('DELETE FROM notebooks WHERE id = ? AND owner_sub = ?')
+        .bind(id, BASE_OWNER),
+    ])
+    return c.json({ notebooks: await notebooks() })
+  })
+
+  /** Every notebook the student owns, in one file they can keep. */
   app.get('/api/export', async (c) => {
-    const data = await workspace(db, env, LOCAL_OWNER)
-    const days = await db
-      .prepare(
-        `SELECT ${dayLogColumns} FROM day_logs WHERE owner_sub = ? ORDER BY date ASC`,
-      )
-      .bind(LOCAL_OWNER)
-      .all<DayLogRow>()
-    const messages = await db
-      .prepare(
-        `SELECT ${messageColumns} FROM library_messages WHERE owner_sub = ? ORDER BY created_at ASC`,
-      )
-      .bind(LOCAL_OWNER)
-      .all<LibraryMessageRow>()
+    const profile = await readProfile(db, BASE_OWNER)
+    const books = await notebooks()
     const today = new Date().toISOString().slice(0, 10)
+    const parts = []
+    for (const notebook of books) {
+      const owner = scopedOwner(notebook.id)
+      const data = await workspace(db, env, owner, notebook)
+      const days = await db
+        .prepare(
+          `SELECT ${dayLogColumns} FROM day_logs WHERE owner_sub = ? ORDER BY date ASC`,
+        )
+        .bind(owner)
+        .all<DayLogRow>()
+      const messages = await db
+        .prepare(
+          `SELECT ${messageColumns} FROM library_messages WHERE owner_sub = ? ORDER BY created_at ASC`,
+        )
+        .bind(owner)
+        .all<LibraryMessageRow>()
+      parts.push({
+        notebook: {
+          id: notebook.id,
+          name: notebook.name,
+          createdAt: notebook.createdAt,
+        },
+        subjects: data.subjects,
+        entries: data.entries,
+        tasks: data.tasks,
+        notes: data.notes,
+        days: days.results.map(mapDayLog),
+        syllabus: data.syllabus,
+        sources: data.sources,
+        library: messages.results.map(mapLibraryMessage),
+      })
+    }
     return c.body(
       JSON.stringify(
         {
           app: 'Studydeck',
-          version: 1,
+          version: 2,
           exportedAt: new Date().toISOString(),
-          profile: data.profile,
-          subjects: data.subjects,
-          entries: data.entries,
-          tasks: data.tasks,
-          notes: data.notes,
-          days: days.results.map(mapDayLog),
-          syllabus: data.syllabus,
-          sources: data.sources,
-          library: messages.results.map(mapLibraryMessage),
+          profile,
+          notebooks: parts,
         },
         null,
         2,
@@ -844,18 +998,8 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
    * kept; everything else is inserted in one batch, so a bad file cannot leave
    * half a workspace behind.
    */
-  app.post(IMPORT_PATH, async (c) => {
-    const body = await readBody(c.req.raw)
-    if (!body)
-      return c.json(
-        { error: 'That file could not be read. Choose a Studydeck backup (.json).' },
-        400,
-      )
-    const parsed = parseBackup(body)
-    if ('error' in parsed) return c.json({ error: parsed.error }, 400)
-    const backup = parsed.backup
-    const owner = LOCAL_OWNER
-
+  /** What one notebook's part of a backup would add, and what it would keep. */
+  async function planMerge(backup: Backup, owner: string) {
     const [
       subjectRows,
       entryRows,
@@ -865,7 +1009,6 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       messageRows,
       dayRows,
       tickRows,
-      profile,
     ] = await Promise.all([
       db
         .prepare('SELECT id, name FROM subjects WHERE owner_sub = ?')
@@ -899,7 +1042,6 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         .prepare('SELECT subject_id, chapter FROM syllabus_progress WHERE owner_sub = ?')
         .bind(owner)
         .all<{ subject_id: string; chapter: string }>(),
-      readProfile(db, owner),
     ])
 
     const existingSubjectIds = new Set(subjectRows.results.map((row) => row.id))
@@ -1128,34 +1270,116 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       added.syllabus += 1
     }
 
+    return { added, skipped, statements }
+  }
+
+  /**
+   * Loads a backup back in, additively. A version 1 file goes into the notebook
+   * being looked at; a version 2 file brings its own notebooks, matched by id
+   * and then by name so importing twice does not clone them.
+   */
+  app.post(IMPORT_PATH, async (c) => {
+    const body = await readBody(c.req.raw)
+    if (!body)
+      return c.json(
+        { error: 'That file could not be read. Choose a Studydeck backup (.json).' },
+        400,
+      )
+    const parsed = parseBackup(body)
+    if ('error' in parsed) return c.json({ error: parsed.error }, 400)
+
+    const all = await notebooks()
+    const plan: { notebook: Notebook; backup: Backup; create: boolean }[] = []
+    for (const part of parsed.parts) {
+      if (!part.notebook) {
+        plan.push({
+          notebook: c.get('notebook'),
+          backup: part.backup,
+          create: false,
+        })
+        continue
+      }
+      const meta = part.notebook
+      const match =
+        all.find((item) => item.id === meta.id) ??
+        all.find((item) => item.name.toLowerCase() === meta.name.toLowerCase())
+      plan.push({
+        notebook: match ?? meta,
+        backup: part.backup,
+        create: !match,
+      })
+    }
+
+    const creates = plan.filter((entry) => entry.create)
+    if (all.length + creates.length > 20)
+      return c.json(
+        { error: 'That backup has more notebooks than Studydeck holds.' },
+        400,
+      )
+
+    const added = emptyCounts()
+    const skipped = emptyCounts()
+    const statements: SqlStatement[] = []
+    const createdIds = new Set<string>()
+    for (const entry of plan) {
+      if (entry.create && !createdIds.has(entry.notebook.id)) {
+        createdIds.add(entry.notebook.id)
+        statements.push(
+          db
+            .prepare(
+              'INSERT INTO notebooks (id, owner_sub, name, created_at) VALUES (?, ?, ?, ?)',
+            )
+            .bind(
+              entry.notebook.id,
+              BASE_OWNER,
+              entry.notebook.name,
+              entry.notebook.createdAt,
+            ),
+        )
+      }
+      const merged = await planMerge(
+        entry.backup,
+        scopedOwner(entry.notebook.id),
+      )
+      statements.push(...merged.statements)
+      for (const key of Object.keys(added) as (keyof ImportCounts)[]) {
+        added[key] += merged.added[key]
+        skipped[key] += merged.skipped[key]
+      }
+    }
+
     // The class setup drives the whole timetable, so an existing one wins.
-    if (backup.profile && !profile) {
+    if (parsed.profile && !(await readProfile(db, BASE_OWNER))) {
       statements.push(
         db
           .prepare(
             'INSERT INTO profiles (owner_sub, class_level, school_days, school_start, school_end, period_length, study_hours, setup_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           )
           .bind(
-            owner,
-            backup.profile.classLevel,
-            backup.profile.schoolDays.join(','),
-            backup.profile.schoolStart,
-            backup.profile.schoolEnd,
-            backup.profile.periodLength,
-            backup.profile.studyHours,
-            backup.profile.setupAt,
+            BASE_OWNER,
+            parsed.profile.classLevel,
+            parsed.profile.schoolDays.join(','),
+            parsed.profile.schoolStart,
+            parsed.profile.schoolEnd,
+            parsed.profile.periodLength,
+            parsed.profile.studyHours,
+            parsed.profile.setupAt,
           ),
       )
       added.profile += 1
-    } else if (backup.profile) {
+    } else if (parsed.profile) {
       skipped.profile += 1
     }
 
     if (statements.length > MAX_IMPORT_STATEMENTS)
       return c.json({ error: 'That backup is too large to import at once.' }, 400)
-
     if (statements.length) await db.batch(statements)
-    return c.json({ added, skipped, workspace: await workspace(db, env, owner) })
+    return c.json({
+      added,
+      skipped,
+      notebooks: await notebooks(),
+      workspace: await workspace(db, env, c.get('owner'), c.get('notebook')),
+    })
   })
 
   /** The weekly timetable and revision plan, ready for any calendar app. */
@@ -1164,7 +1388,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       .prepare(
         `SELECT ${entryColumns} FROM entries WHERE owner_sub = ? ORDER BY day ASC, start_min ASC`,
       )
-      .bind(LOCAL_OWNER)
+      .bind(c.get('owner'))
       .all<EntryRow>()
     return c.body(timetableFile(rows.results.map(mapEntry)), 200, {
       'Content-Type': 'text/calendar; charset=utf-8',
@@ -1177,21 +1401,15 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
    * first and offers the export above as the way to keep a copy.
    */
   app.delete('/api/workspace', async (c) => {
-    const owner = LOCAL_OWNER
-    await db.batch([
-      db.prepare('DELETE FROM entries WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM tasks WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM study_notes WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM day_logs WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM sources WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM library_messages WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM syllabus_progress WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM subjects WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM profiles WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM ai_usage WHERE owner_sub = ?').bind(owner),
-      db.prepare('DELETE FROM ai_keys WHERE owner_sub = ?').bind(owner),
-    ])
-    return c.json(await workspace(db, env, owner))
+    const owner = c.get('owner')
+    // Only this notebook is emptied: other books, the class setup and any saved
+    // AI key belong to the whole app.
+    await db.batch(
+      NOTEBOOK_TABLES.map((table) =>
+        db.prepare(`DELETE FROM ${table} WHERE owner_sub = ?`).bind(owner),
+      ),
+    )
+    return c.json(await workspace(db, env, owner, c.get('notebook')))
   })
 
   /**
@@ -1200,7 +1418,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
    * Notes and tasks are never touched, so a re-run keeps the student's work.
    */
   app.post('/api/setup', async (c) => {
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const body = await readBody(c.req.raw)
     const invalid = () =>
       c.json(
@@ -1342,7 +1560,8 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
            period_length = excluded.period_length, study_hours = excluded.study_hours, setup_at = excluded.setup_at`,
       )
       .bind(
-        owner,
+        // The class and school week are the student's, not the notebook's.
+        BASE_OWNER,
         classLevel,
         `${[...new Set(schoolDays)].sort((a, b) => a - b).join(',')}`,
         schoolStart,
@@ -1362,7 +1581,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       await db.batch(statements.slice(index, index + 40))
     }
 
-    return c.json(await workspace(db, env, owner))
+    return c.json(await workspace(db, env, owner, c.get('notebook')))
   })
 
   app.post('/api/subjects', async (c) => {
@@ -1370,7 +1589,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const input = body ? parseSubject(body) : null
     if (!input)
       return c.json({ error: 'Give the subject a name of 40 characters or fewer.' }, 400)
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const count = await db
       .prepare('SELECT COUNT(*) AS total FROM subjects WHERE owner_sub = ?')
       .bind(owner)
@@ -1408,7 +1627,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         input.teacher,
         input.examDate,
         c.req.param('id'),
-        LOCAL_OWNER,
+        c.get('owner'),
       )
       .first<SubjectRow>()
     return row
@@ -1417,7 +1636,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   })
 
   app.delete('/api/subjects/:id', async (c) => {
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const id = c.req.param('id')
     const removed = await db
       .prepare('DELETE FROM subjects WHERE id = ? AND owner_sub = ? RETURNING id')
@@ -1462,7 +1681,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const chapter = body ? clean(body.chapter, 120) : ''
     if (!subjectId || !chapter)
       return c.json({ error: 'Pick a subject and chapter to track.' }, 400)
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const owned = await db
       .prepare('SELECT id FROM subjects WHERE id = ? AND owner_sub = ?')
       .bind(subjectId, owner)
@@ -1501,7 +1720,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       )
       .bind(
         crypto.randomUUID(),
-        LOCAL_OWNER,
+        c.get('owner'),
         input.subjectId,
         input.title,
         input.kind,
@@ -1539,7 +1758,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         input.plan,
         input.date,
         c.req.param('id'),
-        LOCAL_OWNER,
+        c.get('owner'),
       )
       .first<EntryRow>()
     return row
@@ -1550,7 +1769,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   app.delete('/api/entries/:id', async (c) => {
     const removed = await db
       .prepare('DELETE FROM entries WHERE id = ? AND owner_sub = ? RETURNING id')
-      .bind(c.req.param('id'), LOCAL_OWNER)
+      .bind(c.req.param('id'), c.get('owner'))
       .first()
     return removed
       ? c.json({ ok: true })
@@ -1572,7 +1791,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         return c.json({ error: 'That revision plan could not be saved.' }, 400)
       inputs.push(parsed)
     }
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     await db
       .prepare('DELETE FROM entries WHERE plan = ? AND owner_sub = ?')
       .bind('intensive', owner)
@@ -1606,7 +1825,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       )
       .bind(
         crypto.randomUUID(),
-        LOCAL_OWNER,
+        c.get('owner'),
         input.subjectId,
         input.title,
         input.dueDate,
@@ -1635,7 +1854,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         input.done ? 1 : 0,
         input.details,
         c.req.param('id'),
-        LOCAL_OWNER,
+        c.get('owner'),
       )
       .first<TaskRow>()
     return row
@@ -1646,7 +1865,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   app.delete('/api/tasks/:id', async (c) => {
     const removed = await db
       .prepare('DELETE FROM tasks WHERE id = ? AND owner_sub = ? RETURNING id')
-      .bind(c.req.param('id'), LOCAL_OWNER)
+      .bind(c.req.param('id'), c.get('owner'))
       .first()
     return removed
       ? c.json({ ok: true })
@@ -1668,7 +1887,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       )
       .bind(
         crypto.randomUUID(),
-        LOCAL_OWNER,
+        c.get('owner'),
         input.subjectId,
         input.title,
         input.body,
@@ -1697,7 +1916,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         input.body,
         Date.now(),
         c.req.param('id'),
-        LOCAL_OWNER,
+        c.get('owner'),
       )
       .first<NoteRow>()
     return row
@@ -1708,7 +1927,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   app.delete('/api/notes/:id', async (c) => {
     const removed = await db
       .prepare('DELETE FROM study_notes WHERE id = ? AND owner_sub = ? RETURNING id')
-      .bind(c.req.param('id'), LOCAL_OWNER)
+      .bind(c.req.param('id'), c.get('owner'))
       .first()
     return removed
       ? c.json({ ok: true })
@@ -1750,13 +1969,13 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     if (input.subjectId) {
       const owned = await db
         .prepare('SELECT id FROM subjects WHERE id = ? AND owner_sub = ?')
-        .bind(input.subjectId, LOCAL_OWNER)
+        .bind(input.subjectId, c.get('owner'))
         .first()
       if (!owned) return c.json({ error: 'Subject not found.' }, 404)
     }
     const count = await db
       .prepare('SELECT COUNT(*) AS total FROM sources WHERE owner_sub = ?')
-      .bind(LOCAL_OWNER)
+      .bind(c.get('owner'))
       .first<{ total: number }>()
     if ((count?.total ?? 0) >= 200)
       return c.json({ error: 'The library holds up to 200 pieces of material.' }, 400)
@@ -1767,7 +1986,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       )
       .bind(
         crypto.randomUUID(),
-        LOCAL_OWNER,
+        c.get('owner'),
         input.subjectId,
         input.title,
         input.origin,
@@ -1800,7 +2019,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         input.body,
         Date.now(),
         c.req.param('id'),
-        LOCAL_OWNER,
+        c.get('owner'),
       )
       .first<SourceRow>()
     return row
@@ -1811,7 +2030,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   app.delete('/api/sources/:id', async (c) => {
     const removed = await db
       .prepare('DELETE FROM sources WHERE id = ? AND owner_sub = ? RETURNING id')
-      .bind(c.req.param('id'), LOCAL_OWNER)
+      .bind(c.req.param('id'), c.get('owner'))
       .first()
     return removed
       ? c.json({ ok: true })
@@ -1826,7 +2045,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     if (rawSubject && !subjectId)
       return c.json({ error: 'Subject not found.' }, 404)
     if (!query) return c.json({ results: [] as LibrarySearchHit[] })
-    const rows = await librarySources(LOCAL_OWNER, subjectId)
+    const rows = await librarySources(c.get('owner'), subjectId)
     return c.json({ results: search(chunksOf(rows), query) })
   })
 
@@ -1837,7 +2056,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const subjectId = optionalIdentifier(body?.subjectId)
     if (!question || subjectId === undefined)
       return c.json({ error: 'Ask a question of up to 500 characters.' }, 400)
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const { provider } = await effectiveProvider(db, env, owner)
     if (!provider) return c.json({ error: AI_SETUP }, 503)
     const rows = await librarySources(owner, subjectId)
@@ -1924,7 +2143,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       return c.json({ error: 'Subject not found.' }, 404)
     await db
       .prepare('DELETE FROM library_messages WHERE owner_sub = ? AND subject_id IS ?')
-      .bind(LOCAL_OWNER, subjectId)
+      .bind(c.get('owner'), subjectId)
       .run()
     return c.json({ ok: true })
   })
@@ -1945,7 +2164,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         },
         400,
       )
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
 
     /** One item, or everything filed under one subject. */
     let heading: string
@@ -2149,7 +2368,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const date = clean(c.req.query('date'), 10)
     if (!DATE_PATTERN.test(date))
       return c.json({ error: 'Pick a day to plan.' }, 400)
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const [log, classes] = await Promise.all([
       dayLogFor(owner, date),
       db
@@ -2181,7 +2400,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         },
         400,
       )
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const now = Date.now()
     await db
       .prepare(
@@ -2223,7 +2442,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         return c.json({ error: 'That plan could not be saved.' }, 400)
       inputs.push(parsed)
     }
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     await db
       .prepare(
         `DELETE FROM entries WHERE owner_sub = ? AND plan = 'intensive' AND date = ?`,
@@ -2252,7 +2471,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const date = body ? clean(body.date, 10) : ''
     if (!DATE_PATTERN.test(date))
       return c.json({ error: 'Pick a day to plan.' }, 400)
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const log = await dayLogFor(owner, date)
     if (!log)
       return c.json(
@@ -2361,7 +2580,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
 
   /** Which service answers, and where its key comes from. Never the key. */
   app.get('/api/ai/settings', async (c) => {
-    const owner = LOCAL_OWNER
+    const owner = BASE_OWNER
     const stored = await readAiKey(db, owner)
     const { provider, source } = await effectiveProvider(db, env, owner)
     return c.json({
@@ -2423,7 +2642,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         400,
       )
 
-    await saveAiKey(db, LOCAL_OWNER, {
+    await saveAiKey(db, BASE_OWNER, {
       provider,
       model,
       baseUrl,
@@ -2433,7 +2652,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   })
 
   app.delete('/api/ai/settings', async (c) => {
-    await clearAiKey(db, LOCAL_OWNER)
+    await clearAiKey(db, BASE_OWNER)
     return c.json({ ok: true })
   })
 
@@ -2442,7 +2661,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   const AI_FAILED = 'The AI service did not answer. Please try again in a moment.'
 
   app.post('/api/ai/summarize', async (c) => {
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const { provider } = await effectiveProvider(db, env, owner)
     if (!provider) return c.json({ error: AI_SETUP }, 503)
     const body = await readBody(c.req.raw)
@@ -2478,7 +2697,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const question = clean(body?.question, 500)
     if (!question)
       return c.json({ error: 'Ask a question of up to 500 characters.' }, 400)
-    const owner = LOCAL_OWNER
+    const owner = c.get('owner')
     const { provider } = await effectiveProvider(db, env, owner)
     if (!provider) return c.json({ error: AI_SETUP }, 503)
     const sources = await sourceNotes(db, owner, body)

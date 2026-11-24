@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { WorkspaceData } from '../shared/types'
-import { api } from './api'
+import { api, rememberNotebook } from './api'
 import Shell from './Shell'
 import { WorkspaceProvider } from './workspace'
 import './style.css'
@@ -14,7 +14,10 @@ function App() {
     let live = true
     api<WorkspaceData>('/api/data')
       .then((workspace) => {
-        if (live) setData(workspace)
+        if (!live) return
+        // The server may have picked a different book than the stored one.
+        rememberNotebook(workspace.notebookId)
+        setData(workspace)
       })
       .catch((e) => {
         if (live)

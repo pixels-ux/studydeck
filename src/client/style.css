@@ -598,6 +598,57 @@ code {
   font-weight: 550;
 }
 
+.rail-books {
+  display: grid;
+  gap: 8px;
+}
+
+.rail-book-label {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #96a898;
+}
+
+.rail-book-select {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f5ee;
+  font: inherit;
+  font-size: 14px;
+}
+
+.rail-book-select option {
+  color: #1d2a22;
+}
+
+.rail-book-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.rail-mini {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #c9d3c6;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.rail-mini:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f5ee;
+}
+
+.rail-error {
+  color: #f2c6b8;
+  font-size: 12px;
+}
+
 .rail-foot {
   margin-top: auto;
   display: flex;

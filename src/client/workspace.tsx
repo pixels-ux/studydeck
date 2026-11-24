@@ -12,6 +12,7 @@ import type {
   LibraryMessage,
   Note,
   NoteInput,
+  Notebook,
   Source,
   SourceInput,
   Subject,
@@ -21,7 +22,7 @@ import type {
   TaskInput,
   WorkspaceData,
 } from '../shared/types'
-import { api } from './api'
+import { api, rememberNotebook } from './api'
 
 export type Workspace = {
   data: WorkspaceData
@@ -46,6 +47,11 @@ export type Workspace = {
   applySetup: (payload: SetupPayload) => Promise<void>
   /** Reloads the workspace, e.g. after a backup was merged in. */
   refresh: () => Promise<void>
+  /** Opens another book; everything after it belongs to that book. */
+  switchNotebook: (id: string) => Promise<void>
+  createNotebook: (name: string) => Promise<void>
+  renameNotebook: (id: string, name: string) => Promise<void>
+  deleteNotebook: (id: string) => Promise<void>
   setAiRemaining: (remaining: number) => void
 }
 
@@ -284,8 +290,50 @@ export function WorkspaceProvider({
   }, [])
 
   const refresh = useCallback(async () => {
-    setData(await api<WorkspaceData>('/api/data'))
+    const next = await api<WorkspaceData>('/api/data')
+    rememberNotebook(next.notebookId)
+    setData(next)
   }, [])
+
+  const switchNotebook = useCallback(
+    async (id: string) => {
+      rememberNotebook(id)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const createNotebook = useCallback(
+    async (name: string) => {
+      const result = await api<{ notebook: Notebook }>('/api/notebooks', {
+        method: 'POST',
+        body: { name },
+      })
+      rememberNotebook(result.notebook.id)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const renameNotebook = useCallback(async (id: string, name: string) => {
+    const result = await api<{ notebooks: Notebook[] }>(`/api/notebooks/${id}`, {
+      method: 'PATCH',
+      body: { name },
+    })
+    setData((current) => ({ ...current, notebooks: result.notebooks }))
+  }, [])
+
+  const deleteNotebook = useCallback(
+    async (id: string) => {
+      const result = await api<{ notebooks: Notebook[] }>(`/api/notebooks/${id}`, {
+        method: 'DELETE',
+      })
+      const next = result.notebooks[0]
+      if (data.notebookId === id && next) rememberNotebook(next.id)
+      await refresh()
+    },
+    [data.notebookId, refresh],
+  )
 
   const setAiRemaining = useCallback((remaining: number) => {
     setData((current) => ({
@@ -315,6 +363,10 @@ export function WorkspaceProvider({
       clearLibrary,
       applySetup,
       refresh,
+      switchNotebook,
+      createNotebook,
+      renameNotebook,
+      deleteNotebook,
       setAiRemaining,
     }),
     [
@@ -337,6 +389,10 @@ export function WorkspaceProvider({
       clearLibrary,
       applySetup,
       refresh,
+      switchNotebook,
+      createNotebook,
+      renameNotebook,
+      deleteNotebook,
       setAiRemaining,
     ],
   )

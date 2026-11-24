@@ -204,15 +204,18 @@ test('a saved check-in and its brief come back in the backup', async () => {
   expect((await call('/api/day', 'PUT', { ...checkIn, brief })).status).toBe(200)
 
   const exported = (await (await call('/api/export')).json()) as {
-    days: DayLog[]
+    version: number
+    notebooks: { days: DayLog[] }[]
   }
-  expect(exported.days).toHaveLength(1)
-  expect(exported.days[0]!.date).toBe(DATE)
-  expect(exported.days[0]!.school[0]!.topic).toBe('Quadratic equations')
-  expect(exported.days[0]!.coaching?.topic).toBe('Refraction problems')
-  expect(exported.days[0]!.homework[0]!.minutes).toBe(45)
-  expect(exported.days[0]!.freeUntil).toBe(checkIn.freeUntil)
-  expect(exported.days[0]!.brief).toBe(brief)
+  expect(exported.version).toBe(2)
+  const days = exported.notebooks[0]!.days
+  expect(days).toHaveLength(1)
+  expect(days[0]!.date).toBe(DATE)
+  expect(days[0]!.school[0]!.topic).toBe('Quadratic equations')
+  expect(days[0]!.coaching?.topic).toBe('Refraction problems')
+  expect(days[0]!.homework[0]!.minutes).toBe(45)
+  expect(days[0]!.freeUntil).toBe(checkIn.freeUntil)
+  expect(days[0]!.brief).toBe(brief)
 })
 
 test('a brief needs the day saved first, and an AI key', async () => {

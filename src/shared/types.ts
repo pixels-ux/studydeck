@@ -199,7 +199,17 @@ export type SetupPayload = {
   revision: EntryInput[]
 }
 
+/** A separate book: its own timetable, work, notes and material. */
+export type Notebook = {
+  id: string
+  name: string
+  createdAt: number
+}
+
 export type WorkspaceData = {
+  /** Every notebook on this computer, and the one being looked at. */
+  notebooks: Notebook[]
+  notebookId: string
   subjects: Subject[]
   entries: Entry[]
   tasks: Task[]

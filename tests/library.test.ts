@@ -228,15 +228,16 @@ test('a library question and its cited answer travel in the backup', async () =>
   expect(asked.status).toBe(200)
 
   const exported = (await (await call('/api/export')).json()) as {
-    library: LibraryMessage[]
+    notebooks: { library: LibraryMessage[] }[]
   }
-  expect(exported.library.map((message) => message.role)).toEqual([
+  const library = exported.notebooks[0]!.library
+  expect(library.map((message) => message.role)).toEqual([
     'student',
     'assistant',
   ])
-  expect(exported.library[0]!.body).toBe('How does chlorophyll use light?')
-  expect(exported.library[1]!.body).toContain('Chlorophyll absorbs light')
-  expect(exported.library[1]!.citations[0]).toMatchObject({
+  expect(library[0]!.body).toBe('How does chlorophyll use light?')
+  expect(library[1]!.body).toContain('Chlorophyll absorbs light')
+  expect(library[1]!.citations[0]).toMatchObject({
     index: 1,
     sourceId: source.id,
     sourceTitle: 'Life processes',
@@ -263,9 +264,11 @@ test('material follows its subject, travels in the backup and is reset', async (
   expect(((await scoped.json()) as { results: unknown[] }).results).toHaveLength(1)
 
   const exported = (await (await call('/api/export')).json()) as {
-    sources: { title: string }[]
+    notebooks: { sources: { title: string }[] }[]
   }
-  expect(exported.sources.map((item) => item.title)).toEqual(['Chapter 6'])
+  expect(exported.notebooks[0]!.sources.map((item) => item.title)).toEqual([
+    'Chapter 6',
+  ])
 
   // Deleting the subject keeps the material, unsorted.
   expect((await call(`/api/subjects/${subject.id}`, 'DELETE')).status).toBe(200)

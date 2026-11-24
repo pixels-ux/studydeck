@@ -367,11 +367,14 @@ test('the workspace exports, becomes a calendar file and can be reset', async ()
   expect(exported.headers.get('content-disposition')).toContain('studydeck-')
   const file = (await exported.json()) as {
     app: string
-    subjects: { name: string }[]
-    entries: unknown[]
+    version: number
+    notebooks: { subjects: { name: string }[]; entries: unknown[] }[]
     profile: { classLevel: number } | null
   }
   expect(file.app).toBe('Studydeck')
+  expect(file.version).toBe(2)
+  expect(file.notebooks).toHaveLength(1)
+  expect(file.notebooks[0]!.subjects.length).toBeGreaterThan(0)
   expect(file.profile?.classLevel).toBe(10)
 
   const calendar = await call('/api/timetable.ics')
@@ -385,7 +388,8 @@ test('the workspace exports, becomes a calendar file and can be reset', async ()
 
   expect((await call('/api/workspace', 'DELETE')).status).toBe(200)
   const after = await data()
-  expect(after.profile).toBeNull()
+  // Only the notebook is emptied; the student's class and school week stay.
+  expect(after.profile?.classLevel).toBe(10)
   expect(after.subjects).toHaveLength(0)
   expect(after.entries).toHaveLength(0)
   expect(after.notes).toHaveLength(0)

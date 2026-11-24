@@ -8,6 +8,7 @@ import type {
   EntryKind,
   LibraryMessage,
   Note,
+  Notebook,
   Plan,
   Priority,
   Profile,
@@ -118,6 +119,13 @@ const schema = [
     done_at INTEGER NOT NULL,
     PRIMARY KEY (owner_sub, subject_id, chapter)
   )`,
+  `CREATE TABLE IF NOT EXISTS notebooks (
+    id TEXT PRIMARY KEY,
+    owner_sub TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS notebooks_owner ON notebooks(owner_sub, created_at)`,
   `CREATE TABLE IF NOT EXISTS profiles (
     owner_sub TEXT PRIMARY KEY,
     class_level INTEGER NOT NULL,
@@ -130,13 +138,61 @@ const schema = [
   )`,
 ]
 
+/** The app trusts this computer; a notebook is a second book, not an account. */
+export const BASE_OWNER = 'local'
+
+/** Rows belong to one notebook, so every existing owner check scopes them. */
+export const scopedOwner = (notebookId: string): string =>
+  `${BASE_OWNER}:${notebookId}`
+
+/** Tables whose rows move with their notebook. Profile and AI settings stay. */
+export const NOTEBOOK_TABLES = [
+  'subjects',
+  'entries',
+  'tasks',
+  'study_notes',
+  'sources',
+  'library_messages',
+  'day_logs',
+  'syllabus_progress',
+]
+
+/**
+ * An earlier copy of Studydeck has rows but no notebook, so the first run after
+ * this version gathers them into one notebook instead of hiding them.
+ */
+export async function migrate(db: SqlDatabase): Promise<void> {
+  const existing = await db
+    .prepare(
+      'SELECT id FROM notebooks WHERE owner_sub = ? ORDER BY created_at ASC LIMIT 1',
+    )
+    .bind(BASE_OWNER)
+    .first<{ id: string }>()
+  if (existing) return
+
+  const id = crypto.randomUUID()
+  const statements = [
+    db
+      .prepare(
+        'INSERT INTO notebooks (id, owner_sub, name, created_at) VALUES (?, ?, ?, ?)',
+      )
+      .bind(id, BASE_OWNER, 'My notebook', Date.now()),
+    ...NOTEBOOK_TABLES.map((table) =>
+      db
+        .prepare(`UPDATE ${table} SET owner_sub = ? WHERE owner_sub = ?`)
+        .bind(scopedOwner(id), BASE_OWNER),
+    ),
+  ]
+  await db.batch(statements)
+}
+
 const ready = new WeakMap<SqlDatabase, Promise<void>>()
 export function ensureSchema(db: SqlDatabase): Promise<void> {
   let pending = ready.get(db)
   if (!pending) {
     pending = db
       .batch(schema.map((sql) => db.prepare(sql)))
-      .then(() => undefined)
+      .then(() => migrate(db))
       .catch((error) => {
         ready.delete(db)
         throw error
@@ -145,6 +201,13 @@ export function ensureSchema(db: SqlDatabase): Promise<void> {
   }
   return pending
 }
+
+export type NotebookRow = { id: string; name: string; created_at: number }
+export const mapNotebook = (row: NotebookRow): Notebook => ({
+  id: row.id,
+  name: row.name,
+  createdAt: row.created_at,
+})
 
 export type SubjectRow = {
   id: string

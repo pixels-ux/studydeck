@@ -39,9 +39,48 @@ function tabFromHash(): Tab {
 }
 
 export default function Shell() {
-  const { data } = useWorkspace()
+  const {
+    data,
+    switchNotebook,
+    createNotebook,
+    renameNotebook,
+    deleteNotebook,
+  } = useWorkspace()
   const [tab, setTab] = useState<Tab>(tabFromHash)
   const [editing, setEditing] = useState(false)
+  const [bookError, setBookError] = useState('')
+
+  const run = async (work: () => Promise<void>) => {
+    setBookError('')
+    try {
+      await work()
+    } catch (error) {
+      setBookError(
+        error instanceof Error ? error.message : 'Could not change notebooks.',
+      )
+    }
+  }
+
+  const addNotebook = () => {
+    const name = window.prompt('Name this notebook', '')
+    if (name?.trim()) return run(() => createNotebook(name.trim()))
+  }
+
+  const editNotebook = () => {
+    const open = data.notebooks.find((item) => item.id === data.notebookId)
+    const name = window.prompt('Rename this notebook', open?.name ?? '')
+    if (name?.trim() && name.trim() !== open?.name)
+      return run(() => renameNotebook(data.notebookId, name.trim()))
+  }
+
+  const dropNotebook = () => {
+    const open = data.notebooks.find((item) => item.id === data.notebookId)
+    if (!open) return
+    const agreed = window.confirm(
+      `Delete “${open.name}” and everything in it? Your other notebooks stay.`,
+    )
+    if (agreed) return run(() => deleteNotebook(open.id))
+  }
 
   useEffect(() => {
     const sync = () => {
@@ -74,6 +113,51 @@ export default function Shell() {
             Studydeck<span className="wordmark-dot">.</span>
           </span>
           <p className="rail-tag">Timetable, work and notes.</p>
+        </div>
+        <div className="rail-books">
+          <label className="rail-book-label" htmlFor="notebook-pick">
+            Notebook
+          </label>
+          <select
+            id="notebook-pick"
+            className="rail-book-select"
+            value={data.notebookId}
+            onChange={(event) =>
+              void run(() => switchNotebook(event.target.value))
+            }
+          >
+            {data.notebooks.map((notebook) => (
+              <option key={notebook.id} value={notebook.id}>
+                {notebook.name}
+              </option>
+            ))}
+          </select>
+          <div className="rail-book-actions">
+            <button
+              type="button"
+              className="rail-mini"
+              onClick={() => void addNotebook()}
+            >
+              New
+            </button>
+            <button
+              type="button"
+              className="rail-mini"
+              onClick={() => void editNotebook()}
+            >
+              Rename
+            </button>
+            {data.notebooks.length > 1 ? (
+              <button
+                type="button"
+                className="rail-mini"
+                onClick={() => void dropNotebook()}
+              >
+                Delete
+              </button>
+            ) : null}
+          </div>
+          {bookError ? <p className="rail-error">{bookError}</p> : null}
         </div>
         <nav className="rail-nav" aria-label="Workspace">
           {needsSetup ? null : (

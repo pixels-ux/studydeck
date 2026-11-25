@@ -2917,14 +2917,20 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const apiKey = clean(body.apiKey, 400)
     const model = clean(body.model, 80)
     const baseUrl = clean(body.baseUrl, 200)
+    // Changing only the model keeps the key that service already has.
+    let key = apiKey
+    if (info.needsKey && !key) {
+      const stored = await readAiKey(db, BASE_OWNER)
+      if (stored && stored.provider === provider) key = stored.apiKey
+    }
     // Keys are opaque tokens: printable, no spaces, and long enough to be real.
-    const wellFormed = /^[\x21-\x7e]{8,400}$/.test(apiKey)
+    const wellFormed = /^[\x21-\x7e]{8,400}$/.test(key)
     if (info.needsKey && !wellFormed)
       return c.json(
         { error: 'Paste the API key exactly as the service shows it.' },
         400,
       )
-    if (!info.needsKey && apiKey && !wellFormed)
+    if (!info.needsKey && key && !wellFormed)
       return c.json({ error: 'That API key does not look right.' }, 400)
     if (baseUrl && !/^https?:\/\/[^\s]+$/.test(baseUrl))
       return c.json({ error: 'A base URL must start with http:// or https://.' }, 400)
@@ -2934,7 +2940,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         400,
       )
     if (
-      !providerFromSettings({ provider, apiKey: apiKey || undefined, model, baseUrl })
+      !providerFromSettings({ provider, apiKey: key || undefined, model, baseUrl })
     )
       return c.json(
         { error: 'That provider, key and URL combination cannot work.' },
@@ -2945,7 +2951,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       provider,
       model,
       baseUrl,
-      apiKey,
+      apiKey: key,
     })
     return c.json({ ok: true })
   })
@@ -2956,7 +2962,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   })
 
   const AI_SETUP =
-    'The AI study desk is not connected yet. Paste an API key in the study desk, or set one on the server. Everything else works without it.'
+    'The AI study desk is not connected yet. Paste an API key in Settings, or set one on the server. Everything else works without it.'
   const AI_FAILED = 'The AI service did not answer. Please try again in a moment.'
 
   app.post('/api/ai/summarize', async (c) => {

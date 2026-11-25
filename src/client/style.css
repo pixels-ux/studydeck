@@ -2439,6 +2439,93 @@ a.btn {
   margin-bottom: 16px;
 }
 
+/* Settings: the key form, where keys come from, and the theme picker. */
+.key-help {
+  margin: 16px 0 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.key-help summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink-soft);
+  list-style-position: outside;
+  padding: 2px 0;
+}
+
+.key-help summary:hover {
+  color: var(--ink);
+}
+
+.key-help ul {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.key-help li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--line);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.key-help li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.key-help a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 1px;
+  white-space: nowrap;
+}
+
+.key-help a:hover {
+  border-bottom-color: var(--accent);
+}
+
+.key-help-model {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.theme-picker {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--seg-bg);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  margin-bottom: 12px;
+}
+
+.theme-picker .theme-option {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 7px 18px;
+  border-radius: 8px;
+}
+
+.theme-picker .theme-option:hover {
+  color: var(--ink);
+}
+
+.theme-picker .theme-option.active {
+  background: var(--seg-active);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: var(--seg-shadow);
+}
+
 /* Library: material, search, cited answers and transformations. */
 
 .library-layout {

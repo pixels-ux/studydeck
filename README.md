@@ -180,10 +180,11 @@ service to run and nothing is sent away to be indexed.
 
 ## AI study desk
 
-The desk is optional and off until you give it a key. Open **AI study desk** and
-use **Your own API key** at the bottom of the page: pick a service, paste a key,
-and save. The key is stored in your data file, never sent back to the browser,
-and used only for your own questions.
+The desk is optional and off until you give it a key. Open **Settings**, find
+the **API keys** section: pick a service, paste a key, and save. Change the model
+later without pasting the key again. The key is stored in your data file, never
+sent back to the browser, and used only for your own requests. The same page
+holds the light/dark choice and a shortcut to backups and class setup.
 
 | Service | Where to get a key | Default model |
 | --- | --- | --- |

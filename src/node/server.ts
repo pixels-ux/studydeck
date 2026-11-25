@@ -101,7 +101,7 @@ server.listen(port, host, () => {
     console.log(`AI desk: ${provider.label} (${provider.model})`)
   else
     console.log(
-      'AI desk: not connected. Add a key under "Your own API key" in the study desk.',
+      'AI desk: not connected. Add a key under Settings → API keys.',
     )
 })
 

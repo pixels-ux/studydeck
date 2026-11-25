@@ -3,6 +3,7 @@ import { fmtDateLong, todayISO } from './dates'
 import Home from './Home'
 import Library from './Library'
 import Notes from './Notes'
+import Settings from './Settings'
 import Setup from './Setup'
 import StudyDesk from './StudyDesk'
 import Syllabus from './Syllabus'
@@ -19,6 +20,7 @@ export type Tab =
   | 'notes'
   | 'library'
   | 'desk'
+  | 'settings'
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'today', label: 'Today', hint: 'Classes, work and exams' },
@@ -32,6 +34,7 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
     hint: 'Your material, searched and answered with citations',
   },
   { id: 'desk', label: 'AI study desk', hint: 'Summaries and answers from your notes' },
+  { id: 'settings', label: 'Settings', hint: 'API keys, appearance and your data' },
 ]
 
 const THEMES = [
@@ -243,6 +246,13 @@ export default function Shell() {
               {tab === 'notes' && <Notes />}
               {tab === 'library' && <Library onNavigate={go} />}
               {tab === 'desk' && <StudyDesk onNavigate={go} />}
+              {tab === 'settings' && (
+                <Settings
+                  theme={theme}
+                  onTheme={pickTheme}
+                  onOpenSetup={() => setEditing(true)}
+                />
+              )}
             </>
           )}
         </div>

@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from 'react'
 import type {
+  AiAction,
+  AiActionInput,
   Entry,
   EntryInput,
   LibraryMessage,
@@ -38,6 +40,8 @@ export type Workspace = {
   deleteTask: (id: string) => Promise<void>
   saveNote: (input: NoteInput, id?: string) => Promise<Note>
   deleteNote: (id: string) => Promise<void>
+  saveAction: (input: AiActionInput, id?: string) => Promise<AiAction>
+  deleteAction: (id: string) => Promise<void>
   saveSource: (input: SourceInput, id?: string) => Promise<Source>
   deleteSource: (id: string) => Promise<void>
   /** A note the server made for the student, e.g. a library transformation. */
@@ -232,6 +236,30 @@ export function WorkspaceProvider({
     }))
   }, [])
 
+  const saveAction = useCallback(async (input: AiActionInput, id?: string) => {
+    const result = await api<{ action: AiAction }>(
+      id ? `/api/actions/${id}` : '/api/actions',
+      { method: id ? 'PATCH' : 'POST', body: input },
+    )
+    setData((current) => ({
+      ...current,
+      actions: id
+        ? current.actions.map((action) =>
+            action.id === id ? result.action : action,
+          )
+        : [...current.actions, result.action],
+    }))
+    return result.action
+  }, [])
+
+  const deleteAction = useCallback(async (id: string) => {
+    await api<{ ok: boolean }>(`/api/actions/${id}`, { method: 'DELETE' })
+    setData((current) => ({
+      ...current,
+      actions: current.actions.filter((action) => action.id !== id),
+    }))
+  }, [])
+
   const saveSource = useCallback(async (input: SourceInput, id?: string) => {
     const result = await api<{ source: Source }>(
       id ? `/api/sources/${id}` : '/api/sources',
@@ -356,6 +384,8 @@ export function WorkspaceProvider({
       deleteTask,
       saveNote,
       deleteNote,
+      saveAction,
+      deleteAction,
       saveSource,
       deleteSource,
       adoptNote,
@@ -382,6 +412,8 @@ export function WorkspaceProvider({
       deleteTask,
       saveNote,
       deleteNote,
+      saveAction,
+      deleteAction,
       saveSource,
       deleteSource,
       adoptNote,

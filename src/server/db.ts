@@ -1,4 +1,5 @@
 import type {
+  AiAction,
   Citation,
   DayCoaching,
   DayCovered,
@@ -100,6 +101,15 @@ const schema = [
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS library_messages_owner ON library_messages(owner_sub, subject_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS ai_actions (
+    id TEXT PRIMARY KEY,
+    owner_sub TEXT NOT NULL,
+    name TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS ai_actions_owner ON ai_actions(owner_sub, created_at)`,
   `CREATE TABLE IF NOT EXISTS day_logs (
     owner_sub TEXT NOT NULL,
     date TEXT NOT NULL,
@@ -151,6 +161,7 @@ export const NOTEBOOK_TABLES = [
   'entries',
   'tasks',
   'study_notes',
+  'ai_actions',
   'sources',
   'library_messages',
   'day_logs',
@@ -285,6 +296,21 @@ export const mapNote = (row: NoteRow): Note => ({
   subjectId: row.subject_id,
   title: row.title,
   body: row.body,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+})
+
+export type AiActionRow = {
+  id: string
+  name: string
+  prompt: string
+  created_at: number
+  updated_at: number
+}
+export const mapAiAction = (row: AiActionRow): AiAction => ({
+  id: row.id,
+  name: row.name,
+  prompt: row.prompt,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })

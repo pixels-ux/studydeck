@@ -393,6 +393,73 @@ test('the workspace exports, becomes a calendar file and can be reset', async ()
   expect(after.subjects).toHaveLength(0)
   expect(after.entries).toHaveLength(0)
   expect(after.notes).toHaveLength(0)
+  expect(after.actions).toHaveLength(0)
+})
+
+test('a saved action is kept in the notebook and only runs with a key', async () => {
+  expect(
+    (await call('/api/actions', 'POST', { name: 'Explain it', prompt: 'short' }))
+      .status,
+  ).toBe(400)
+  expect(
+    (await call('/api/actions', 'POST', { name: '', prompt: 'Explain this.' }))
+      .status,
+  ).toBe(400)
+
+  const created = await call('/api/actions', 'POST', {
+    name: 'Explain it simply',
+    prompt: 'Explain this in plain words, as if I missed the class.',
+  })
+  expect(created.status).toBe(201)
+  const { action } = (await created.json()) as { action: { id: string } }
+  expect((await data()).actions.map((item) => item.name)).toEqual([
+    'Explain it simply',
+  ])
+
+  const edited = await call(`/api/actions/${action.id}`, 'PATCH', {
+    name: 'Explain it very simply',
+    prompt: 'Explain this in one paragraph of plain words.',
+  })
+  expect(edited.status).toBe(200)
+
+  // It travels with the notebook, so a backup brings it back.
+  const exported = (await (await call('/api/export')).json()) as {
+    notebooks: { actions: { name: string; prompt: string }[] }[]
+  }
+  expect(exported.notebooks[0]!.actions).toMatchObject([
+    {
+      name: 'Explain it very simply',
+      prompt: 'Explain this in one paragraph of plain words.',
+    },
+  ])
+
+  const note = (await (
+    await call('/api/notes', 'POST', {
+      title: 'Light reactions',
+      body: 'Chlorophyll absorbs light in the thylakoid.',
+    })
+  ).json()) as { note: { id: string } }
+
+  // One target, not both, and a real target to run over.
+  expect(
+    (await call(`/api/actions/${action.id}/run`, 'POST', {})).status,
+  ).toBe(400)
+  expect(
+    (
+      await call(`/api/actions/${action.id}/run`, 'POST', { noteId: 'not-an-id' })
+    ).status,
+  ).toBe(404)
+  const run = await call(`/api/actions/${action.id}/run`, 'POST', {
+    noteId: note.note.id,
+  })
+  expect(run.status).toBe(503)
+  expect(((await run.json()) as { error: string }).error).toContain(
+    'Paste an API key',
+  )
+
+  expect((await call(`/api/actions/${action.id}`, 'DELETE')).status).toBe(200)
+  expect((await data()).actions).toHaveLength(0)
+  expect((await call(`/api/actions/${action.id}`, 'DELETE')).status).toBe(404)
 })
 
 test('a key saved in the app turns the desk on and never comes back out', async () => {

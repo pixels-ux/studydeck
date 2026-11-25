@@ -36,6 +36,7 @@ type ExportPart = {
   entries: unknown[]
   tasks: unknown[]
   notes: { body: string }[]
+  actions: { name: string; prompt: string }[]
   days: { date: string; school: { topic: string }[]; brief: string }[]
   syllabus: { chapter: string }[]
   sources: { title: string }[]
@@ -81,6 +82,13 @@ async function seed(db: SqlDatabase, owner: string) {
     .prepare(
       `INSERT INTO study_notes (id, owner_sub, subject_id, title, body, created_at, updated_at)
        VALUES ('note-1', ?, 'sub-1', 'Quadratics', 'x^2 + bx + c', 114, 114)`,
+    )
+    .bind(owner)
+    .run()
+  await db
+    .prepare(
+      `INSERT INTO ai_actions (id, owner_sub, name, prompt, created_at, updated_at)
+       VALUES ('action-1', ?, 'Simplify', 'Explain this in plain words.', 114, 114)`,
     )
     .bind(owner)
     .run()
@@ -140,6 +148,7 @@ function asVersionOne(file: ExportFile): Record<string, unknown> {
     entries: part.entries,
     tasks: part.tasks,
     notes: part.notes,
+    actions: part.actions,
     days: part.days,
     syllabus: part.syllabus,
     sources: part.sources,
@@ -167,6 +176,7 @@ test('a backup restores every notebook it holds', async () => {
   expect(result.added.entries).toBe(1)
   expect(result.added.tasks).toBe(1)
   expect(result.added.notes).toBe(1)
+  expect(result.added.actions).toBe(1)
   expect(result.added.sources).toBe(1)
   expect(result.added.library).toBe(2)
   expect(result.added.days).toBe(1)
@@ -183,6 +193,7 @@ test('a backup restores every notebook it holds', async () => {
   expect(data.entries[0]?.subjectId).toBe('sub-1')
   expect(data.tasks[0]?.title).toBe('Exercise 4.2')
   expect(data.notes[0]?.body).toBe('x^2 + bx + c')
+  expect(data.actions[0]?.name).toBe('Simplify')
   expect(data.sources[0]?.title).toBe('Chapter 3')
   expect(data.library.map((message) => message.role)).toEqual([
     'student',

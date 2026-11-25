@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import Actions from './Actions'
 import { api } from './api'
 import { fmtDate, todayISO } from './dates'
 import Prose from './Prose'
@@ -182,7 +183,11 @@ function KeyCard() {
   )
 }
 
-export default function StudyDesk() {
+export default function StudyDesk({
+  onNavigate,
+}: {
+  onNavigate?: (tab: 'notes') => void
+}) {
   const { data, saveNote, setAiRemaining } = useWorkspace()
   const [scope, setScope] = useState('')
   const [summary, setSummary] = useState<{ text: string; scope: string } | null>(null)
@@ -270,7 +275,8 @@ export default function StudyDesk() {
           <p className="muted">
             The study desk answers from your notes, using your CBSE class and
             NCERT chapter outline to keep to your syllabus. It names the note it
-            used, and a summary can be saved straight back into your notebook.
+            used, a summary can be saved straight back into your notebook, and
+            your own saved actions run over a note or a subject's material.
           </p>
           {data.ai.enabled ? (
             <p className="fineprint">
@@ -419,6 +425,8 @@ export default function StudyDesk() {
           something is missing, the assistant says so instead of guessing.
         </p>
       </section>
+
+      <Actions onNavigate={onNavigate} />
 
       <KeyCard />
     </div>

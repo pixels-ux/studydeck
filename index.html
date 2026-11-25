@@ -7,7 +7,7 @@
       name="description"
       content="Studydeck keeps a CBSE student's timetable, revision plan, assignments and notes in one place. The AI study desk answers from your own notes."
     />
-    <meta name="theme-color" content="#1d3027" />
+    <meta name="theme-color" content="#f3f1ea" />
     <title>Studydeck: timetable, deadlines and notes</title>
     <script>
       // Before the first paint, so a dark screen never flashes light.
@@ -18,6 +18,9 @@
           (picked !== 'light' &&
             matchMedia('(prefers-color-scheme: dark)').matches)
         document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+        document
+          .querySelector('meta[name="theme-color"]')
+          .setAttribute('content', dark ? '#121915' : '#f3f1ea')
       } catch (error) {
         document.documentElement.dataset.theme = 'light'
       }

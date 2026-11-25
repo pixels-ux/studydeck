@@ -175,6 +175,7 @@ export default function Shell() {
         <nav className="rail-nav" aria-label="Workspace">
           {needsSetup ? null : (
             <>
+              <p className="rail-section">Workspace</p>
               {TABS.map((item) => (
                 <button
                   key={item.id}
@@ -237,7 +238,7 @@ export default function Shell() {
               {tab === 'syllabus' && <Syllabus />}
               {tab === 'notes' && <Notes />}
               {tab === 'library' && <Library onNavigate={go} />}
-              {tab === 'desk' && <StudyDesk />}
+              {tab === 'desk' && <StudyDesk onNavigate={go} />}
             </>
           )}
         </div>

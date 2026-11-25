@@ -72,6 +72,20 @@ export type NoteInput = {
   body: string
 }
 
+/** A prompt the student saved, to run over their own note or material. */
+export type AiAction = {
+  id: string
+  name: string
+  prompt: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type AiActionInput = {
+  name: string
+  prompt: string
+}
+
 export type SyllabusTick = {
   subjectId: string
   chapter: string
@@ -216,6 +230,8 @@ export type WorkspaceData = {
   entries: Entry[]
   tasks: Task[]
   notes: Note[]
+  /** Saved prompts, ready to run over a note or a subject's material. */
+  actions: AiAction[]
   /** NCERT chapters the student has ticked off. */
   syllabus: SyllabusTick[]
   /** Material the student added to the library. */

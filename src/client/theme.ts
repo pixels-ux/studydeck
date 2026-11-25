@@ -17,11 +17,22 @@ function systemPrefersDark(): boolean {
   return window.matchMedia?.(DARK).matches ?? false
 }
 
+/** The browser paints its own chrome with this, so it has to match the page. */
+const BROWSER_CHROME = { light: '#f3f1ea', dark: '#121915' }
+
+function paintBrowserChrome(theme: 'light' | 'dark'): void {
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', BROWSER_CHROME[theme])
+}
+
 /** Paints the page and says which theme is now showing. */
 export function applyTheme(choice: ThemeChoice): 'light' | 'dark' {
   const dark = choice === 'dark' || (choice === 'system' && systemPrefersDark())
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-  return dark ? 'dark' : 'light'
+  const theme = dark ? 'dark' : 'light'
+  document.documentElement.dataset.theme = theme
+  paintBrowserChrome(theme)
+  return theme
 }
 
 let following = false

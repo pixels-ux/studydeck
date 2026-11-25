@@ -179,6 +179,33 @@ export function answerFromMaterial(
   )
 }
 
+/**
+ * A saved prompt: the student's own instruction, applied to their own note or
+ * material. It keeps the tutor's manners but follows their wording first.
+ */
+export function runCustomAction(
+  provider: Provider,
+  prompt: string,
+  sources: NoteSource[],
+  context = '',
+): Promise<string> {
+  return complete(
+    provider,
+    [
+      { role: 'system', content: systemPrompt(context) },
+      {
+        role: 'user',
+        content:
+          `The student saved this instruction for their Studydeck assistant:\n\n${prompt}\n\n` +
+          `Follow it using only the material below. If the material cannot answer it, say so plainly and name what is missing instead of inventing anything. ` +
+          `Keep to the format the instruction asks for.\n\n` +
+          `Material:\n${buildSourceBlock(sources)}`,
+      },
+    ],
+    900,
+  )
+}
+
 /** A transformation: turn material into practice questions. */
 export function practiceQuestions(
   provider: Provider,

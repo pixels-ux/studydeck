@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { syllabusBrief, unitsFor } from '../shared/curriculum.ts'
 import type {
+  AiActionInput,
   Citation,
   DayCovered,
   DayHomework,
@@ -26,6 +27,7 @@ import {
   practiceQuestions,
   revisionCards,
   revisionSlides,
+  runCustomAction,
   summariseNotes,
   usedAi,
   type NoteSource,
@@ -47,6 +49,7 @@ import type { SqlDatabase, SqlStatement } from './sql'
 import {
   BASE_OWNER,
   ensureSchema,
+  mapAiAction,
   mapDayLog,
   mapEntry,
   mapLibraryMessage,
@@ -59,6 +62,7 @@ import {
   NOTEBOOK_TABLES,
   readProfile,
   scopedOwner,
+  type AiActionRow,
   type DayLogRow,
   type EntryRow,
   type LibraryMessageRow,
@@ -326,6 +330,7 @@ const sourceColumns =
   'id, subject_id, title, origin, body, created_at, updated_at'
 const messageColumns =
   'id, subject_id, role, body, citations, created_at'
+const actionColumns = 'id, name, prompt, created_at, updated_at'
 const dayLogColumns =
   'date, school, coaching, homework, free_from, free_until, brief, updated_at'
 const TRANSFORMS = ['summary', 'questions', 'flashcards', 'slides'] as const
@@ -337,6 +342,18 @@ const TRANSFORM_TITLES: Record<Transform, string> = {
   questions: 'Practice questions',
   flashcards: 'Flashcards',
   slides: 'Slides',
+}
+
+/** A saved prompt is short by nature: a name and an instruction to follow. */
+const MAX_ACTION_NAME = 60
+const MAX_ACTION_PROMPT = 2_000
+const MAX_ACTIONS = 50
+
+function parseAction(body: Record<string, unknown>): AiActionInput | null {
+  const name = clean(body.name, MAX_ACTION_NAME)
+  const prompt = clean(body.prompt, MAX_ACTION_PROMPT)
+  if (!name || prompt.length < 10) return null
+  return { name, prompt }
 }
 
 /** One INSERT shared by the revision-plan and class-setup endpoints. */
@@ -408,6 +425,12 @@ type ImportMessage = {
   citations: Citation[]
   createdAt: number
 }
+type ImportAction = {
+  id: string
+  input: AiActionInput
+  createdAt: number
+  updatedAt: number
+}
 type ImportDay = { log: Omit<DayLog, 'updatedAt'>; updatedAt: number }
 type ImportTick = { subjectId: string; chapter: string; doneAt: number }
 type ImportProfile = {
@@ -425,6 +448,7 @@ type Backup = {
   entries: ImportBlock[]
   tasks: ImportTask[]
   notes: ImportNote[]
+  actions: ImportAction[]
   sources: ImportSource[]
   library: ImportMessage[]
   days: ImportDay[]
@@ -435,6 +459,7 @@ type ImportCounts = {
   entries: number
   tasks: number
   notes: number
+  actions: number
   sources: number
   library: number
   days: number
@@ -447,6 +472,7 @@ const emptyCounts = (): ImportCounts => ({
   entries: 0,
   tasks: 0,
   notes: 0,
+  actions: 0,
   sources: 0,
   library: 0,
   days: 0,
@@ -644,6 +670,24 @@ function parseNotebookData(
     })
   }
 
+  // Version 2 files from before saved actions simply have none.
+  const actionList = backupRecords(body.actions, MAX_ACTIONS)
+  if (!actionList) return { error: IMPORT_FAILED }
+  const actions: ImportAction[] = []
+  for (const record of actionList) {
+    const id = identifier(record.id)
+    const input = parseAction(record)
+    const createdAt = stamp(record.createdAt)
+    if (!id || !input || createdAt === null || actions.some((row) => row.id === id))
+      return { error: 'That backup has a saved action Studydeck could not read.' }
+    actions.push({
+      id,
+      input,
+      createdAt,
+      updatedAt: stamp(record.updatedAt) ?? createdAt,
+    })
+  }
+
   const sourceList = backupRecords(body.sources, 300)
   if (!sourceList) return { error: IMPORT_FAILED }
   const sources: ImportSource[] = []
@@ -721,7 +765,18 @@ function parseNotebookData(
     return { error: 'That backup has a class setup Studydeck could not read.' }
 
   return {
-    backup: { profile, subjects, entries, tasks, notes, sources, library, days, syllabus },
+    backup: {
+      profile,
+      subjects,
+      entries,
+      tasks,
+      notes,
+      actions,
+      sources,
+      library,
+      days,
+      syllabus,
+    },
   }
 }
 
@@ -801,6 +856,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       entries,
       tasks,
       notes,
+      actions,
       sources,
       library,
       syllabus,
@@ -830,6 +886,12 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         )
         .bind(owner)
         .all<NoteRow>(),
+      db
+        .prepare(
+          `SELECT ${actionColumns} FROM ai_actions WHERE owner_sub = ? ORDER BY created_at ASC LIMIT ${MAX_ACTIONS}`,
+        )
+        .bind(owner)
+        .all<AiActionRow>(),
       db
         .prepare(
           `SELECT ${sourceColumns} FROM sources WHERE owner_sub = ? ORDER BY updated_at DESC LIMIT 300`,
@@ -863,6 +925,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       entries: entries.results.map(mapEntry),
       tasks: tasks.results.map(mapTask),
       notes: notes.results.map(mapNote),
+      actions: actions.results.map(mapAiAction),
       sources: sources.results.map(mapSource),
       library: library.results.map(mapLibraryMessage),
       syllabus: syllabus.results.map((row) => ({
@@ -973,6 +1036,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         entries: data.entries,
         tasks: data.tasks,
         notes: data.notes,
+        actions: data.actions,
         days: days.results.map(mapDayLog),
         syllabus: data.syllabus,
         sources: data.sources,
@@ -1012,6 +1076,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       entryRows,
       taskRows,
       noteRows,
+      actionRows,
       sourceRows,
       messageRows,
       dayRows,
@@ -1031,6 +1096,10 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         .all<{ id: string }>(),
       db
         .prepare('SELECT id FROM study_notes WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ id: string }>(),
+      db
+        .prepare('SELECT id FROM ai_actions WHERE owner_sub = ?')
         .bind(owner)
         .all<{ id: string }>(),
       db
@@ -1058,6 +1127,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const entryIds = new Set(entryRows.results.map((row) => row.id))
     const taskIds = new Set(taskRows.results.map((row) => row.id))
     const noteIds = new Set(noteRows.results.map((row) => row.id))
+    const actionIds = new Set(actionRows.results.map((row) => row.id))
     const sourceIds = new Set(sourceRows.results.map((row) => row.id))
     const messageIds = new Set(messageRows.results.map((row) => row.id))
     const dayDates = new Set(dayRows.results.map((row) => row.date))
@@ -1183,6 +1253,29 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
           ),
       )
       added.notes += 1
+    }
+
+    for (const action of backup.actions) {
+      if (actionIds.has(action.id)) {
+        skipped.actions += 1
+        continue
+      }
+      actionIds.add(action.id)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO ai_actions (id, owner_sub, name, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            action.id,
+            owner,
+            action.input.name,
+            action.input.prompt,
+            action.createdAt,
+            action.updatedAt,
+          ),
+      )
+      added.actions += 1
     }
 
     for (const source of backup.sources) {
@@ -2284,6 +2377,166 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
           now,
           now,
         )
+        .first<NoteRow>()
+      return c.json({ note: mapNote(note!), remaining: quota.remaining })
+    } catch (error) {
+      return c.json(
+        { error: error instanceof AiError ? error.message : AI_FAILED },
+        502,
+      )
+    }
+  })
+
+  /* Saved prompts: the student's own instruction, run over their own work. */
+
+  const actionError =
+    'Give the action a name and an instruction of at least 10 characters.'
+
+  app.post('/api/actions', async (c) => {
+    const body = await readBody(c.req.raw)
+    const input = body ? parseAction(body) : null
+    if (!input) return c.json({ error: actionError }, 400)
+    const owner = c.get('owner')
+    const count = await db
+      .prepare('SELECT COUNT(*) AS total FROM ai_actions WHERE owner_sub = ?')
+      .bind(owner)
+      .first<{ total: number }>()
+    if ((count?.total ?? 0) >= MAX_ACTIONS)
+      return c.json(
+        { error: `Studydeck keeps up to ${MAX_ACTIONS} saved actions.` },
+        400,
+      )
+    const now = Date.now()
+    const row = await db
+      .prepare(
+        `INSERT INTO ai_actions (id, owner_sub, name, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING ${actionColumns}`,
+      )
+      .bind(crypto.randomUUID(), owner, input.name, input.prompt, now, now)
+      .first<AiActionRow>()
+    return c.json({ action: mapAiAction(row!) }, 201)
+  })
+
+  app.patch('/api/actions/:id', async (c) => {
+    const body = await readBody(c.req.raw)
+    const input = body ? parseAction(body) : null
+    if (!input) return c.json({ error: actionError }, 400)
+    const row = await db
+      .prepare(
+        `UPDATE ai_actions SET name = ?, prompt = ?, updated_at = ? WHERE id = ? AND owner_sub = ? RETURNING ${actionColumns}`,
+      )
+      .bind(input.name, input.prompt, Date.now(), c.req.param('id'), c.get('owner'))
+      .first<AiActionRow>()
+    return row
+      ? c.json({ action: mapAiAction(row) })
+      : c.json({ error: 'That action was not found.' }, 404)
+  })
+
+  app.delete('/api/actions/:id', async (c) => {
+    const removed = await db
+      .prepare('DELETE FROM ai_actions WHERE id = ? AND owner_sub = ? RETURNING id')
+      .bind(c.req.param('id'), c.get('owner'))
+      .first()
+    return removed
+      ? c.json({ ok: true })
+      : c.json({ error: 'That action was not found.' }, 404)
+  })
+
+  /**
+   * Runs a saved prompt over one note or one subject's material and keeps the
+   * answer as a note, so it can be edited like anything else in Notes.
+   */
+  app.post('/api/actions/:id/run', async (c) => {
+    const owner = c.get('owner')
+    const action = await db
+      .prepare(
+        `SELECT ${actionColumns} FROM ai_actions WHERE id = ? AND owner_sub = ?`,
+      )
+      .bind(c.req.param('id'), owner)
+      .first<AiActionRow>()
+    if (!action) return c.json({ error: 'That action was not found.' }, 404)
+
+    const body = await readBody(c.req.raw)
+    const rawNote = body?.noteId
+    const rawSubject = body?.subjectId
+    const noteId = rawNote ? identifier(rawNote) : null
+    const subjectId = rawSubject ? identifier(rawSubject) : null
+    if ((rawNote && !noteId) || (rawSubject && !subjectId))
+      return c.json({ error: 'That note or subject was not found.' }, 404)
+    if (Boolean(noteId) === Boolean(subjectId))
+      return c.json(
+        { error: 'Run this action over one note or one subject, not both.' },
+        400,
+      )
+
+    /** The note it will work from, or everything filed under one subject. */
+    let heading: string
+    let noteSubjectId: string | null
+    let material: NoteSource[]
+    if (noteId) {
+      const row = await db
+        .prepare(
+          'SELECT id, subject_id, title, body FROM study_notes WHERE id = ? AND owner_sub = ?',
+        )
+        .bind(noteId, owner)
+        .first<{
+          id: string
+          subject_id: string | null
+          title: string
+          body: string
+        }>()
+      if (!row) return c.json({ error: 'That note was not found.' }, 404)
+      heading = row.title
+      noteSubjectId = row.subject_id
+      material = [{ title: row.title, body: row.body }]
+    } else {
+      const subject = await db
+        .prepare('SELECT id, name FROM subjects WHERE id = ? AND owner_sub = ?')
+        .bind(subjectId, owner)
+        .first<{ id: string; name: string }>()
+      if (!subject) return c.json({ error: 'Subject not found.' }, 404)
+      const rows = await db
+        .prepare(
+          `SELECT ${sourceColumns} FROM sources WHERE owner_sub = ? AND subject_id = ? ORDER BY updated_at DESC LIMIT 40`,
+        )
+        .bind(owner, subject.id)
+        .all<SourceRow>()
+      if (!rows.results.length)
+        return c.json(
+          {
+            error: `Add some material to ${subject.name} first, or run this action over one of your notes.`,
+          },
+          400,
+        )
+      heading = subject.name
+      noteSubjectId = subject.id
+      material = rows.results.map((item) => ({
+        title: item.title,
+        body: item.body,
+      }))
+    }
+
+    const { provider } = await effectiveProvider(db, env, owner)
+    if (!provider) return c.json({ error: AI_SETUP }, 503)
+    const quota = await consumeAi(db, owner)
+    if (!quota.ok)
+      return c.json(
+        { error: `You have used today’s ${AI_DAILY_LIMIT} AI actions. They reset tomorrow.` },
+        429,
+      )
+    try {
+      const text = await runCustomAction(
+        provider,
+        action.prompt,
+        material,
+        await syllabusContext(db, owner),
+      )
+      const now = Date.now()
+      const title = `${action.name} · ${heading}`.slice(0, 120)
+      const note = await db
+        .prepare(
+          `INSERT INTO study_notes (id, owner_sub, subject_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${noteColumns}`,
+        )
+        .bind(crypto.randomUUID(), owner, noteSubjectId, title, text, now, now)
         .first<NoteRow>()
       return c.json({ note: mapNote(note!), remaining: quota.remaining })
     } catch (error) {

@@ -69,6 +69,9 @@ bun start         # http://localhost:3000
 - **AI study desk** — summarise your notes into revision points, or ask a
   question answered only from your own notes, with the note it used. It knows
   your class and chapters. Capped at 40 actions a day.
+- **Your own actions** — save an instruction you keep retyping (“explain it
+  simply”, “make five practice questions”) and run it over one note or all of a
+  subject's material. The answer is saved in Notes, ready to edit.
 - **Light or dark** — the app follows your computer's theme, and the Auto /
   Light / Dark switch in the left rail overrides it. The choice is kept in this
   browser, and a dark page is painted before the first frame so nothing flashes
@@ -197,6 +200,16 @@ and used only for your own questions.
 
 Any service that speaks the OpenAI chat-completions API works; pick *Other* and
 give it a base URL and a model.
+
+### Your own actions
+
+An action is a prompt you save. In **AI study desk**, press **New action**, give
+it a name and write the instruction in your own words. Then pick a note or a
+subject under **Run over** and press **Run**: the instruction is sent with that
+note, or with every piece of material filed under that subject, and the answer
+is saved as a note titled `<action> · <note or subject>` that you can edit like
+any other. Actions belong to the notebook they were saved in, so they travel in
+its backup, and each run costs one of the day's AI actions.
 
 ### Ollama, entirely offline
 

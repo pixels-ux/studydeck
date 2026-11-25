@@ -142,6 +142,16 @@ const schema = [
     PRIMARY KEY (owner_sub, note_id, card_key)
   )`,
   `CREATE INDEX IF NOT EXISTS card_reviews_due ON card_reviews(owner_sub, due_date)`,
+  `CREATE TABLE IF NOT EXISTS review_log (
+    owner_sub TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    card_key TEXT NOT NULL,
+    result TEXT NOT NULL,
+    day TEXT NOT NULL,
+    reviewed_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS review_log_day ON review_log(owner_sub, day)`,
+  `CREATE INDEX IF NOT EXISTS review_log_at ON review_log(owner_sub, reviewed_at)`,
   `CREATE TABLE IF NOT EXISTS notebooks (
     id TEXT PRIMARY KEY,
     owner_sub TEXT NOT NULL,
@@ -175,6 +185,7 @@ export const NOTEBOOK_TABLES = [
   'tasks',
   'study_notes',
   'card_reviews',
+  'review_log',
   'ai_actions',
   'sources',
   'library_messages',

@@ -204,6 +204,22 @@ export type ReviewCard = {
   fresh: boolean
 }
 
+/** The record the review answers build up, shown on the Review page. */
+export type ReviewStats = {
+  /** Days in a row with at least one answer, ending today or yesterday. */
+  streak: number
+  bestStreak: number
+  /** Days in the last 30, before today, that had no answers. */
+  missedDays: number
+  answeredToday: number
+  /** Cards recalled (Good or Easy) as a percentage of the last 30 days. */
+  recalled: number
+  /** Answers given in the last 30 days. */
+  answers: number
+  /** Every answer ever given in this notebook. */
+  total: number
+}
+
 /** How much review work is waiting, for Today and the rail. */
 export type ReviewSummary = {
   due: number
@@ -267,6 +283,8 @@ export type WorkspaceData = {
   syllabus: SyllabusTick[]
   /** Flashcards due today, and how many exist in the notebook. */
   review: ReviewSummary
+  /** The streak and recall record built from your answers. */
+  reviewStats: ReviewStats
   /** Material the student added to the library. */
   sources: Source[]
   /** Saved questions and answers about that material. */

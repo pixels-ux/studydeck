@@ -49,6 +49,9 @@ type SearchFocus =
   | { kind: 'task'; id: string }
   | { kind: 'chapter'; id: string; chapter: string }
 
+/** The tab title the page is published with; the due count goes in front. */
+const BASE_TITLE = 'Studydeck: timetable, deadlines and notes'
+
 const THEMES = [
   { id: 'system', label: 'Auto' },
   { id: 'light', label: 'Light' },
@@ -128,6 +131,12 @@ export default function Shell() {
     if (window.location.hash !== `#/${next}`) window.location.hash = `/${next}`
   }
   const clearFocus = useCallback(() => setFocus(null), [])
+
+  // Cards waiting are visible from another tab, without opening the app.
+  useEffect(() => {
+    const due = data.review.due + data.review.fresh
+    document.title = due > 0 ? `(${due}) ${BASE_TITLE}` : BASE_TITLE
+  }, [data.review.due, data.review.fresh])
 
   // ⌘K or Ctrl+K opens the one search box from anywhere.
   useEffect(() => {

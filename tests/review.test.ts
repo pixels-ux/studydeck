@@ -4,6 +4,9 @@ import { cardKey } from '../src/shared/revision.ts'
 import { addDays, nextGap, nextReview } from '../src/shared/review.ts'
 import { openDatabase } from '../src/node/sqlite'
 import { createApp } from '../src/server/app'
+import { scopedOwner } from '../src/server/db'
+import { reviewStats } from '../src/server/review'
+import type { SqlDatabase } from '../src/server/sql'
 
 const deck = [
   'Q: What is light?',
@@ -56,6 +59,123 @@ const call = (app: ReturnType<typeof createApp>, path: string, method = 'GET', b
     headers: { Origin: 'http://localhost', 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
+
+async function seeded() {
+  const db = openDatabase(':memory:')
+  const app = createApp(db, {})
+  const data = (await (await call(app, '/api/data')).json()) as WorkspaceData
+  return { db, app, owner: scopedOwner(data.notebookId) }
+}
+
+/** A row in the history, as an answer on that day would have written it. */
+async function logged(
+  db: SqlDatabase,
+  owner: string,
+  day: string,
+  result: string,
+  key = 'abc',
+) {
+  await db
+    .prepare(
+      'INSERT INTO review_log (owner_sub, note_id, card_key, result, day, reviewed_at) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .bind(owner, 'note-1', key, result, day, Date.parse(`${day}T12:00:00Z`))
+    .run()
+}
+
+test('the streak counts days in a row, and today stays open', async () => {
+  const { db, owner } = await seeded()
+  for (const day of ['2026-11-23', '2026-11-24', '2026-11-25'])
+    await logged(db, owner, day, 'good')
+
+  expect(await reviewStats(db, owner, '2026-11-25')).toMatchObject({
+    streak: 3,
+    bestStreak: 3,
+    missedDays: 0,
+    answeredToday: 1,
+    recalled: 100,
+    answers: 3,
+    total: 3,
+  })
+  // Nothing answered yet today: yesterday's run is not broken.
+  expect((await reviewStats(db, owner, '2026-11-26')).streak).toBe(3)
+  // A whole day with no answers does break it.
+  expect((await reviewStats(db, owner, '2026-11-27')).streak).toBe(0)
+})
+
+test('missed days and the recall share are read from the answers', async () => {
+  const { db, owner } = await seeded()
+  await logged(db, owner, '2026-11-10', 'again')
+  await logged(db, owner, '2026-11-25', 'easy')
+
+  const stats = await reviewStats(db, owner, '2026-11-25')
+  // The 24th back to the 10th, which was answered, so fourteen days are empty.
+  expect(stats.missedDays).toBe(14)
+  expect(stats.streak).toBe(1)
+  expect(stats.bestStreak).toBe(1)
+  expect(stats.answers).toBe(2)
+  expect(stats.recalled).toBe(50)
+})
+
+test('the best run survives a break, and a new notebook owes no days', async () => {
+  const { db, owner } = await seeded()
+  for (const day of [
+    '2026-11-01',
+    '2026-11-02',
+    '2026-11-03',
+    '2026-11-20',
+    '2026-11-21',
+  ])
+    await logged(db, owner, day, 'hard')
+
+  const stats = await reviewStats(db, owner, '2026-11-25')
+  expect(stats.bestStreak).toBe(3)
+  expect(stats.streak).toBe(0)
+  expect(stats.answers).toBe(5)
+  expect(stats.recalled).toBe(0)
+
+  const fresh = await seeded()
+  expect(await reviewStats(fresh.db, fresh.owner, '2026-11-25')).toMatchObject({
+    streak: 0,
+    bestStreak: 0,
+    missedDays: 0,
+    total: 0,
+  })
+})
+
+test('an answer is kept in the history and travels in a backup', async () => {
+  const source = createApp(openDatabase(':memory:'), {})
+  const saved = await call(source, '/api/notes', 'POST', {
+    subjectId: null,
+    title: 'Flashcards · Light',
+    body: deck,
+  })
+  const note = ((await saved.json()) as { note: { id: string } }).note
+  await call(source, '/api/review', 'POST', {
+    noteId: note.id,
+    cardKey: cardKey('What is light?'),
+    result: 'good',
+  })
+
+  const data = (await (await call(source, '/api/data')).json()) as WorkspaceData
+  expect(data.reviewStats).toMatchObject({
+    streak: 1,
+    answeredToday: 1,
+    answers: 1,
+    total: 1,
+  })
+
+  const file = (await (await call(source, '/api/export')).json()) as {
+    notebooks: { reviewLog: { noteId: string }[] }[]
+  }
+  expect(file.notebooks[0]!.reviewLog).toHaveLength(1)
+
+  const target = createApp(openDatabase(':memory:'), {})
+  expect((await call(target, '/api/import', 'POST', file)).status).toBe(200)
+  const imported = (await (await call(target, '/api/data')).json()) as WorkspaceData
+  expect(imported.reviewStats.total).toBe(1)
+  expect(imported.reviewStats.streak).toBe(1)
+})
 
 test('a new deck is due at once, and an answer schedules it', async () => {
   const app = createApp(openDatabase(':memory:'), {})

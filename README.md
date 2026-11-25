@@ -66,8 +66,9 @@ bun start         # http://localhost:3000
   are shared, since there is one student and one school week.
 - **Your data** — download every notebook — subjects, timetable, tasks, notes,
   day check-ins (with their AI briefs), syllabus, library material, the library
-  conversations about it and each deck's review progress — as one JSON file,
-  load one back, or empty the notebook you are looking at.
+  conversations about it, each deck's review progress and the history of your
+  answers — as one JSON file, load one back, or empty the notebook you are
+  looking at.
 - **Calendar** — export the week and the revision plan as an `.ics` file for
   Google Calendar, Apple Calendar or Outlook.
 - **AI study desk** — summarise your notes into revision points, or ask a
@@ -207,6 +208,14 @@ seen for a month does not dump every card on you at once. Each answer shows the
 next interval on its button, and the rail and Today both show what is waiting.
 Revising never spends an AI action: the cards already exist, and the dates come
 from your own answers.
+
+Above the queue is the record your answers build: the current streak of days
+with at least one answer (today stays open until midnight, so an evening session
+still counts), the best run, how many you answered today, the share you recalled
+over the last 30 days, and the days in that window that went unanswered — counted
+from your first review, so a new deck does not start with a month of debt. The
+browser tab carries the due count too, `(4) Studydeck…`, so another tab tells you
+whether anything is waiting without opening the app.
 
 Progress is stored in the same data file as everything else, goes with the deck
 when you delete it, and travels in a backup. A deck you edit keeps the schedule

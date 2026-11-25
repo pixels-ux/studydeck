@@ -68,6 +68,15 @@ function workspace(overrides: Partial<WorkspaceData> = {}): WorkspaceData {
     ],
     library: [],
     review: { due: 0, fresh: 0, total: 0, nextDue: '' },
+    reviewStats: {
+      streak: 0,
+      bestStreak: 0,
+      missedDays: 0,
+      answeredToday: 0,
+      recalled: 0,
+      answers: 0,
+      total: 0,
+    },
     profile: {
       classLevel: 10,
       schoolDays: [0, 1, 2, 3, 4],

@@ -1,6 +1,11 @@
 import { cardKey, parseCards, revisionKindOf } from '../shared/revision.ts'
-import { nextReview, REVIEW_RESULTS } from '../shared/review.ts'
-import type { ReviewCard, ReviewResult, ReviewSummary } from '../shared/types.ts'
+import { addDays, nextReview, REVIEW_RESULTS } from '../shared/review.ts'
+import type {
+  ReviewCard,
+  ReviewResult,
+  ReviewStats,
+  ReviewSummary,
+} from '../shared/types.ts'
 import type { SqlDatabase } from './sql.ts'
 
 type CardNoteRow = {
@@ -137,6 +142,84 @@ export async function reviewQueue(
   }
 }
 
+/**
+ * The record the answers add up to: a streak of days, the best run, the answer
+ * share over the last month, and the days in it that went unanswered.
+ */
+export async function reviewStats(
+  db: SqlDatabase,
+  owner: string,
+  today: string,
+): Promise<ReviewStats> {
+  const rows = await db
+    .prepare(
+      `SELECT day, result, COUNT(*) AS answers FROM review_log
+       WHERE owner_sub = ? GROUP BY day, result`,
+    )
+    .bind(owner)
+    .all<{ day: string; result: string; answers: number }>()
+
+  const byDay = new Map<string, { answers: number; recalled: number }>()
+  let total = 0
+  for (const row of rows.results) {
+    total += row.answers
+    const day = byDay.get(row.day) ?? { answers: 0, recalled: 0 }
+    day.answers += row.answers
+    if (row.result === 'good' || row.result === 'easy') day.recalled += row.answers
+    byDay.set(row.day, day)
+  }
+
+  const answered = new Set(byDay.keys())
+
+  // A streak is alive until the day is over, so an unanswered today does not
+  // break yesterday's run.
+  let streak = 0
+  let cursor = answered.has(today) ? today : addDays(today, -1)
+  while (answered.has(cursor)) {
+    streak += 1
+    cursor = addDays(cursor, -1)
+  }
+
+  const days = [...answered].sort()
+  let bestStreak = 0
+  let run = 0
+  let previous = ''
+  for (const day of days) {
+    run = previous && addDays(previous, 1) === day ? run + 1 : 1
+    bestStreak = Math.max(bestStreak, run)
+    previous = day
+  }
+
+  // The last 30 days, counted from the first answer so a new student is not
+  // told they missed a month before they started. Today is not missed yet.
+  const start = addDays(today, -29)
+  let answers = 0
+  let recalled = 0
+  let missedDays = 0
+  for (const [day, counts] of byDay) {
+    if (day < start || day > today) continue
+    answers += counts.answers
+    recalled += counts.recalled
+  }
+  if (days.length) {
+    const first = days[0]!
+    const from = first > start ? first : start
+    for (let day = addDays(today, -1); day >= from; day = addDays(day, -1)) {
+      if (!answered.has(day)) missedDays += 1
+    }
+  }
+
+  return {
+    streak,
+    bestStreak,
+    missedDays,
+    answeredToday: byDay.get(today)?.answers ?? 0,
+    recalled: answers ? Math.round((recalled / answers) * 100) : 0,
+    answers,
+    total,
+  }
+}
+
 export type GradeResult =
   | { ok: true; card: ReviewCard }
   | { ok: false; reason: 'note' | 'card' }
@@ -185,30 +268,38 @@ export async function gradeCard(
   )
   const reviewedAt = Date.now()
 
-  await db
-    .prepare(
-      `INSERT INTO card_reviews (owner_sub, note_id, card_key, due_date, interval_days, ease, lapses, last_result, reviewed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(owner_sub, note_id, card_key) DO UPDATE SET
-         due_date = excluded.due_date,
-         interval_days = excluded.interval_days,
-         ease = excluded.ease,
-         lapses = excluded.lapses,
-         last_result = excluded.last_result,
-         reviewed_at = excluded.reviewed_at`,
-    )
-    .bind(
-      owner,
-      noteId,
-      key,
-      next.dueDate,
-      next.intervalDays,
-      next.ease,
-      next.lapses,
-      result,
-      reviewedAt,
-    )
-    .run()
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO card_reviews (owner_sub, note_id, card_key, due_date, interval_days, ease, lapses, last_result, reviewed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(owner_sub, note_id, card_key) DO UPDATE SET
+           due_date = excluded.due_date,
+           interval_days = excluded.interval_days,
+           ease = excluded.ease,
+           lapses = excluded.lapses,
+           last_result = excluded.last_result,
+           reviewed_at = excluded.reviewed_at`,
+      )
+      .bind(
+        owner,
+        noteId,
+        key,
+        next.dueDate,
+        next.intervalDays,
+        next.ease,
+        next.lapses,
+        result,
+        reviewedAt,
+      ),
+    // Every answer is kept, because the streak and the recall share are read
+    // from the history rather than from the card's latest state.
+    db
+      .prepare(
+        'INSERT INTO review_log (owner_sub, note_id, card_key, result, day, reviewed_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .bind(owner, noteId, key, result, today, reviewedAt),
+  ])
 
   return {
     ok: true,

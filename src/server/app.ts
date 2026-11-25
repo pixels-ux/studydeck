@@ -47,7 +47,7 @@ import {
   type SemanticIndex,
 } from './library.ts'
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers.ts'
-import { gradeCard, reviewQueue } from './review.ts'
+import { gradeCard, reviewQueue, reviewStats } from './review.ts'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
   BASE_OWNER,
@@ -457,6 +457,13 @@ type ImportReview = {
   lastResult: string
   reviewedAt: number
 }
+type ImportReviewLog = {
+  noteId: string
+  cardKey: string
+  result: string
+  day: string
+  reviewedAt: number
+}
 type Backup = {
   profile: ImportProfile | null
   subjects: ImportSubject[]
@@ -469,6 +476,7 @@ type Backup = {
   days: ImportDay[]
   syllabus: ImportTick[]
   reviews: ImportReview[]
+  reviewLog: ImportReviewLog[]
 }
 type ImportCounts = {
   subjects: number
@@ -481,6 +489,7 @@ type ImportCounts = {
   days: number
   syllabus: number
   reviews: number
+  reviewLog: number
   profile: number
 }
 
@@ -495,6 +504,7 @@ const emptyCounts = (): ImportCounts => ({
   days: 0,
   syllabus: 0,
   reviews: 0,
+  reviewLog: 0,
   profile: 0,
 })
 
@@ -819,6 +829,32 @@ function parseNotebookData(
     })
   }
 
+  const logList = backupRecords(body.reviewLog, 20_000)
+  if (!logList) return { error: IMPORT_FAILED }
+  const reviewLog: ImportReviewLog[] = []
+  for (const record of logList) {
+    const noteId = identifier(record.noteId)
+    const cardKeyValue = clean(record.cardKey, 8)
+    const result = REVIEW_RESULTS.find((option) => option === record.result)
+    const day = clean(record.day, 10)
+    const reviewedAt = stamp(record.reviewedAt)
+    if (
+      !noteId ||
+      !/^[0-9a-z]{1,8}$/.test(cardKeyValue) ||
+      !result ||
+      !DATE_PATTERN.test(day) ||
+      reviewedAt === null
+    )
+      return { error: 'That backup has review history Studydeck could not read.' }
+    reviewLog.push({
+      noteId,
+      cardKey: cardKeyValue,
+      result,
+      day,
+      reviewedAt,
+    })
+  }
+
   const profile = parseImportProfile(body.profile)
   if (profile === undefined)
     return { error: 'That backup has a class setup Studydeck could not read.' }
@@ -836,6 +872,7 @@ function parseNotebookData(
       days,
       syllabus,
       reviews,
+      reviewLog,
     },
   }
 }
@@ -978,12 +1015,9 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         .first<ProfileRow>(),
     ])
     const { provider } = await effectiveProvider(db, env, BASE_OWNER)
-    const review = await reviewQueue(
-      db,
-      owner,
-      new Date().toISOString().slice(0, 10),
-      0,
-    )
+    const today = new Date().toISOString().slice(0, 10)
+    const review = await reviewQueue(db, owner, today, 0)
+    const stats = await reviewStats(db, owner, today)
     return {
       notebooks: await notebooks(),
       notebookId: notebook.id,
@@ -999,6 +1033,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         chapter: row.chapter,
       })),
       review: review.summary,
+      reviewStats: stats,
       profile: profileRow ? mapProfile(profileRow) : null,
       ai: {
         enabled: Boolean(provider),
@@ -1108,6 +1143,18 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
           last_result: string
           reviewed_at: number
         }>()
+      const reviewLog = await db
+        .prepare(
+          'SELECT note_id, card_key, result, day, reviewed_at FROM review_log WHERE owner_sub = ? ORDER BY reviewed_at ASC',
+        )
+        .bind(owner)
+        .all<{
+          note_id: string
+          card_key: string
+          result: string
+          day: string
+          reviewed_at: number
+        }>()
       parts.push({
         notebook: {
           id: notebook.id,
@@ -1131,6 +1178,13 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
           ease: row.ease,
           lapses: row.lapses,
           lastResult: row.last_result,
+          reviewedAt: row.reviewed_at,
+        })),
+        reviewLog: reviewLog.results.map((row) => ({
+          noteId: row.note_id,
+          cardKey: row.card_key,
+          result: row.result,
+          day: row.day,
           reviewedAt: row.reviewed_at,
         })),
       })
@@ -1174,6 +1228,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       dayRows,
       tickRows,
       reviewRows,
+      logRows,
     ] = await Promise.all([
       db
         .prepare('SELECT id, name FROM subjects WHERE owner_sub = ?')
@@ -1215,6 +1270,10 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         .prepare('SELECT note_id, card_key FROM card_reviews WHERE owner_sub = ?')
         .bind(owner)
         .all<{ note_id: string; card_key: string }>(),
+      db
+        .prepare('SELECT note_id, card_key, reviewed_at FROM review_log WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ note_id: string; card_key: string; reviewed_at: number }>(),
     ])
 
     const existingSubjectIds = new Set(subjectRows.results.map((row) => row.id))
@@ -1233,6 +1292,11 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     )
     const reviewKeys = new Set(
       reviewRows.results.map((row) => `${row.note_id}::${row.card_key}`),
+    )
+    const logKeys = new Set(
+      logRows.results.map(
+        (row) => `${row.note_id}::${row.card_key}::${row.reviewed_at}`,
+      ),
     )
 
     const added = emptyCounts()
@@ -1495,6 +1559,30 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
           ),
       )
       added.reviews += 1
+    }
+
+    for (const entry of backup.reviewLog) {
+      const logId = `${entry.noteId}::${entry.cardKey}::${entry.reviewedAt}`
+      if (!noteIds.has(entry.noteId) || logKeys.has(logId)) {
+        skipped.reviewLog += 1
+        continue
+      }
+      logKeys.add(logId)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO review_log (owner_sub, note_id, card_key, result, day, reviewed_at) VALUES (?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            owner,
+            entry.noteId,
+            entry.cardKey,
+            entry.result,
+            entry.day,
+            entry.reviewedAt,
+          ),
+      )
+      added.reviewLog += 1
     }
 
     return { added, skipped, statements }

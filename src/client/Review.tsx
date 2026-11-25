@@ -1,12 +1,41 @@
 import { useCallback, useEffect, useState } from 'react'
 import { nextGap } from '../shared/review'
-import type { ReviewCard, ReviewResult, ReviewSummary } from '../shared/types'
+import type {
+  ReviewCard,
+  ReviewResult,
+  ReviewStats,
+  ReviewSummary,
+} from '../shared/types'
 import { api } from './api'
 import { fmtDate } from './dates'
 import type { Tab } from './Shell'
 import { useWorkspace } from './workspace'
 
 type Queue = { cards: ReviewCard[]; summary: ReviewSummary }
+
+/** The streak and recall record the answers add up to. */
+function ReviewRecord({ stats }: { stats: ReviewStats }) {
+  return (
+    <div className="review-record" aria-label="Your review record">
+      <span>
+        <strong>{stats.streak}</strong>
+        {stats.streak === 1 ? 'day in a row' : 'days in a row'}
+      </span>
+      <span>
+        <strong>{stats.bestStreak}</strong>best run
+      </span>
+      <span>
+        <strong>{stats.answeredToday}</strong>answered today
+      </span>
+      <span title="Cards recalled (Good or Easy) in the last 30 days">
+        <strong>{stats.recalled}%</strong>recalled in 30 days
+      </span>
+      <span title="Days in the last 30 with no answers, after your first review">
+        <strong>{stats.missedDays}</strong>days missed
+      </span>
+    </div>
+  )
+}
 
 const GRADES: {
   result: ReviewResult
@@ -35,7 +64,6 @@ export default function Review({
   const [error, setError] = useState('')
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
-  const [reviewed, setReviewed] = useState(0)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -46,7 +74,6 @@ export default function Review({
       setQueue(next)
       setIndex(0)
       setRevealed(false)
-      setReviewed(0)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not open today’s cards.')
     } finally {
@@ -73,9 +100,9 @@ export default function Review({
           method: 'POST',
           body: { noteId: current.noteId, cardKey: current.key, result },
         })
-        setReviewed((count) => count + 1)
         setRevealed(false)
-        if (index + 1 >= cards.length) await refresh()
+        // Keeps the rail badge, the tab title and the record in step.
+        void refresh()
         setIndex(index + 1)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not save that answer.')
@@ -158,17 +185,26 @@ export default function Review({
       <section className="card review-empty">
         <p className="eyebrow">All caught up</p>
         <h3>
-          {reviewed === 1
-            ? 'You reviewed one card today'
-            : `You reviewed ${reviewed} cards today`}
+          {data.reviewStats.answeredToday === 1
+            ? 'You answered one card today'
+            : `You answered ${data.reviewStats.answeredToday} cards today`}
         </h3>
         <p className="muted">
-          {reviewed === 0
+          {data.reviewStats.answeredToday === 0
             ? 'Nothing was due. New cards appear here the day after you make a deck.'
             : queue.summary.nextDue
               ? `The next cards come back on ${fmtDate(queue.summary.nextDue)}.`
               : 'Every card is scheduled. Studydeck will bring them back when they are due.'}
         </p>
+        {data.reviewStats.total > 0 ? (
+          <>
+            <ReviewRecord stats={data.reviewStats} />
+            <p className="fineprint">
+              Missed days counts the days in the last 30 with no answers, after
+              your first review. A streak stays alive until the day is over.
+            </p>
+          </>
+        ) : null}
         <div className="form-actions">
           <button className="btn primary" onClick={() => onNavigate('today')}>
             Back to Today
@@ -205,6 +241,10 @@ export default function Review({
           </span>
         </div>
       </section>
+
+      {data.reviewStats.total > 0 ? (
+        <ReviewRecord stats={data.reviewStats} />
+      ) : null}
 
       <article className="review-card">
         <p className="eyebrow">

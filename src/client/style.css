@@ -1,80 +1,137 @@
 :root {
-  --paper: #f3f1ea;
-  --paper-2: #eae7dc;
-  --card: #fffdf7;
-  --ink: #1e2622;
-  --ink-soft: #46534c;
-  --muted: #5f6961;
-  --line: #e3dfd2;
+  /* Paper, ink and the steps between them. */
+  --paper: #f4f2ea;
+  --paper-2: #eae7db;
+  --card: #fffef9;
+  --field: #fdfcf5;
+  --surface-soft: #f8f6ed;
+  --surface-tint: #f4f1e5;
+  --cream: #f1ecdb;
+  --ink: #1b2420;
+  --ink-soft: #414f48;
+  --muted: #5c6a62;
+  --line: #e2dece;
+  --line-strong: #cbdcc4;
+
+  /* Green, as a fill and as a tint. */
   --green: #2f4a3a;
-  --green-deep: #1d3027;
-  --green-soft: #e5ede0;
-  --amber: #9c6420;
-  --rose: #a8493a;
-  --display: ui-serif, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua',
-    Georgia, serif;
-  --body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  /* Picked by role, so the dark theme only has to restate these. */
-  --field: #fbfaf3;
-  --surface-soft: #faf8ef;
-  --surface-tint: #f7f5eb;
-  --cream: #f5f1e2;
-  --line-strong: #d2e0cc;
-  --rose-line: #e3cfc8;
-  --rose-soft: #f5e4df;
-  --olive: #6a7f3f;
-  --olive-soft: #e6e7cd;
-  --blue: #40607a;
-  --blue-soft: #dce6ec;
-  --amber-soft: #f0e3cd;
+  --green-deep: #1c2f26;
+  --green-soft: #e6eee1;
   --green-hover: #263d30;
-  --accent: #2f4a3a;
-  --accent-strong: #3d5847;
+  --accent: #2c5941;
+  --accent-strong: #234634;
+
+  /* Subject and status colours. */
+  --amber: #98601d;
+  --amber-soft: #f0e2cb;
+  --rose: #a8493a;
+  --rose-line: #e4cec7;
+  --rose-soft: #f6e3dd;
+  --olive: #657a3d;
+  --olive-soft: #e6e7cc;
+  --blue: #3d5e78;
+  --blue-soft: #dce6ed;
+
+  /* Buttons carry their own pair, so the dark theme can turn them around. */
+  --btn-bg: #2f4a3a;
+  --btn-bg-hover: #263d30;
+  --btn-ink: #f7f5ea;
+
+  /* The rail is its own dark panel in both themes. */
+  --rail-bg: #1d3128;
+  --rail-bg-2: #16261e;
+  --rail-ink: #f4f1e5;
+  --rail-ink-soft: #dde5d9;
+  --rail-ink-muted: #a4b5a9;
+  --rail-line: rgba(255, 255, 255, 0.14);
+  --rail-hover: rgba(255, 255, 255, 0.07);
+  --rail-active-bg: #f4f1e5;
+  --rail-active-ink: #1c2f26;
+
+  /* Small parts that have to flip with the theme. */
+  --seg-bg: #eae7db;
+  --seg-active: #fffef9;
+  --seg-shadow: 0 1px 3px rgba(30, 38, 34, 0.14);
+  --grid-line: rgba(214, 210, 196, 0.9);
+  --overlay: rgba(22, 32, 26, 0.4);
+  --scroll-thumb: rgba(65, 79, 72, 0.3);
   --on-dark: #f4f1e5;
   --on-dark-soft: #e2e7da;
   --on-dark-muted: #9fb3a3;
   --on-dark-amber: #d9a25f;
+
+  --display: ui-serif, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua',
+    Georgia, serif;
+  --body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+
   --shadow: 0 1px 2px rgba(30, 38, 34, 0.04),
-    0 16px 36px -30px rgba(29, 48, 39, 0.6);
-  --shadow-soft: 0 1px 2px rgba(30, 38, 34, 0.05);
+    0 18px 40px -32px rgba(29, 48, 39, 0.55);
+  --shadow-soft: 0 1px 2px rgba(30, 38, 34, 0.045);
+  --card-sheen: rgba(255, 255, 255, 0);
   color-scheme: light;
 }
 
-/* Dark: the same page, with the paper and the ink traded places. */
+/*
+ * Dark is not the light palette darkened: the page sits at the bottom, a card
+ * is lifted one step, an inset field one step below the card, and every border
+ * is visible without turning into a frame.
+ */
 [data-theme='dark'] {
-  --paper: #121915;
-  --paper-2: #1b241f;
-  --card: #18211c;
-  --ink: #e8ebe3;
-  --ink-soft: #b8c3ba;
-  --muted: #8e9c92;
-  --line: #2e3c34;
-  --green: #35604a;
-  --green-deep: #0f1a14;
-  --green-soft: #213128;
-  --amber: #dcab6d;
-  --rose: #e09a8a;
-  --field: #1b241f;
-  --surface-soft: #1d2823;
-  --surface-tint: #222e27;
-  --cream: #26332c;
-  --line-strong: #3a4b41;
-  --rose-line: #5b3a33;
-  --rose-soft: #3a2521;
-  --olive: #b9cc86;
-  --olive-soft: #2c3826;
-  --blue: #9fc3d8;
-  --blue-soft: #22313b;
-  --amber-soft: #382b1c;
-  --green-hover: #47795e;
-  --accent: #94c6a5;
-  --accent-strong: #b9d5c0;
-  --on-dark: #f1f4ec;
-  --on-dark-soft: #cfd9d1;
-  --on-dark-muted: #a3b2a8;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3),
-    0 16px 36px -30px rgba(0, 0, 0, 0.85);
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --paper: #0d1411;
+  --paper-2: #19231d;
+  --card: #161f1a;
+  --field: #111a15;
+  --surface-soft: #1b2620;
+  --surface-tint: #202c25;
+  --cream: #26332b;
+  --ink: #eef2ec;
+  --ink-soft: #c2cdc4;
+  --muted: #96a59b;
+  --line: #2a3830;
+  --line-strong: #3d4e43;
+
+  --green: #3a6b52;
+  --green-deep: #0f1a15;
+  --green-soft: #1c2c24;
+  --green-hover: #44795d;
+  --accent: #93d2ab;
+  --accent-strong: #bbe4c9;
+
+  --amber: #e0b073;
+  --amber-soft: #2f2618;
+  --rose: #eaa99b;
+  --rose-line: #55342e;
+  --rose-soft: #2f1e1a;
+  --olive: #c3d69a;
+  --olive-soft: #26301e;
+  --blue: #a7cde2;
+  --blue-soft: #1c2b35;
+
+  --btn-bg: #a8d8b7;
+  --btn-bg-hover: #bfe6cb;
+  --btn-ink: #0c1711;
+
+  --rail-bg: #17221c;
+  --rail-bg-2: #101a15;
+  --rail-ink: #edf2ec;
+  --rail-ink-soft: #c9d4cb;
+  --rail-ink-muted: #93a399;
+  --rail-line: rgba(255, 255, 255, 0.1);
+  --rail-hover: rgba(255, 255, 255, 0.05);
+  --rail-active-bg: #26382d;
+  --rail-active-ink: #cfeada;
+
+  --seg-bg: #111a15;
+  --seg-active: #26332b;
+  --seg-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --grid-line: rgba(255, 255, 255, 0.055);
+  --overlay: rgba(0, 0, 0, 0.62);
+  --scroll-thumb: rgba(194, 205, 196, 0.26);
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35),
+    0 20px 44px -34px rgba(0, 0, 0, 0.9);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --card-sheen: rgba(255, 255, 255, 0.045);
   color-scheme: dark;
 }
 
@@ -82,8 +139,8 @@
   color: var(--ink);
 }
 
-[data-theme='dark'] .seg.active {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+[data-theme='dark'] .block:hover {
+  filter: brightness(1.08);
 }
 
 [data-theme='dark'] .mock-card,
@@ -93,6 +150,30 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-color: var(--scroll-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--ink-soft) 55%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
 }
 
 html,
@@ -104,9 +185,10 @@ body {
 
 body {
   font-family: var(--body);
-  line-height: 1.5;
+  line-height: 1.55;
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 h1,
@@ -230,7 +312,7 @@ code {
 }
 
 .wordmark.light {
-  color: var(--on-dark);
+  color: var(--rail-ink);
 }
 
 /* Buttons */
@@ -241,8 +323,8 @@ code {
   justify-content: center;
   gap: 6px;
   border: 1px solid transparent;
-  background: var(--green);
-  color: var(--on-dark);
+  background: var(--btn-bg);
+  color: var(--btn-ink);
   border-radius: 10px;
   padding: 9px 14px;
   min-height: 40px;
@@ -255,9 +337,9 @@ code {
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--green-hover);
+  background: var(--btn-bg-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px -6px rgba(29, 48, 39, 0.6);
+  box-shadow: 0 6px 14px -8px rgba(16, 26, 20, 0.6);
 }
 
 .btn:active:not(:disabled) {
@@ -265,8 +347,17 @@ code {
 }
 
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: default;
+  box-shadow: none;
+}
+
+/* A disabled primary button reads as unavailable, not as a dull green. */
+.btn.primary:disabled {
+  opacity: 1;
+  background: var(--paper-2);
+  color: var(--muted);
+  border-color: var(--line);
 }
 
 .btn.ghost {
@@ -277,7 +368,8 @@ code {
 }
 
 .btn.ghost:hover:not(:disabled) {
-  background: var(--paper-2);
+  background: var(--surface-soft);
+  border-color: var(--line-strong);
 }
 
 .btn.danger {
@@ -335,10 +427,7 @@ code {
 .empty-line {
   color: var(--muted);
   font-size: 13.5px;
-  padding: 18px 20px;
-  border: 1px dashed var(--line);
-  border-radius: 12px;
-  background: var(--surface-tint);
+  padding: 12px 0;
   line-height: 1.6;
 }
 
@@ -646,30 +735,32 @@ code {
 
 .app {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .rail {
-  background: linear-gradient(
+  background-color: var(--rail-bg);
+  background-image: linear-gradient(
     180deg,
-    var(--green-deep) 0%,
-    color-mix(in srgb, var(--green-deep) 86%, #000) 100%
+    var(--rail-bg) 0%,
+    var(--rail-bg-2) 100%
   );
-  color: var(--on-dark);
-  padding: 26px 18px;
+  color: var(--rail-ink);
+  padding: 26px 16px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 22px;
   position: sticky;
   top: 0;
   height: 100vh;
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
 }
 
 .rail-tag {
   font-size: 12px;
-  color: var(--on-dark-muted);
+  color: var(--rail-ink-muted);
   margin-top: 6px;
 }
 
@@ -683,7 +774,7 @@ code {
   font-size: 10.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--on-dark-muted);
+  color: var(--rail-ink-muted);
   padding: 0 12px;
   margin: 0 0 6px;
 }
@@ -691,7 +782,7 @@ code {
 .rail-link {
   background: transparent;
   border: 0;
-  color: var(--on-dark-soft);
+  color: var(--rail-ink-soft);
   text-align: left;
   padding: 9px 12px;
   border-radius: 9px;
@@ -700,15 +791,14 @@ code {
 }
 
 .rail-link:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--on-dark);
+  background: var(--rail-hover);
+  color: var(--rail-ink);
 }
 
 .rail-link.active {
-  background: var(--on-dark);
-  color: var(--green-deep);
+  background: var(--rail-active-bg);
+  color: var(--rail-active-ink);
   font-weight: 550;
-  box-shadow: 0 2px 10px -4px rgba(0, 0, 0, 0.65);
 }
 
 .rail-books {
@@ -720,18 +810,23 @@ code {
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--on-dark-muted);
+  color: var(--rail-ink-muted);
 }
 
 .rail-book-select {
   width: 100%;
   padding: 9px 10px;
   border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--on-dark);
+  border: 1px solid var(--rail-line);
+  background: var(--rail-hover);
+  color: var(--rail-ink);
   font: inherit;
   font-size: 14px;
+  min-height: 38px;
+}
+
+.rail-book-select:hover {
+  border-color: color-mix(in srgb, var(--rail-ink-muted) 55%, transparent);
 }
 
 .rail-book-select option {
@@ -745,16 +840,17 @@ code {
 
 .rail-mini {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  color: var(--on-dark-soft);
+  border: 1px solid var(--rail-line);
+  color: var(--rail-ink-soft);
   padding: 5px 9px;
   border-radius: 8px;
   font-size: 12px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .rail-mini:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--on-dark);
+  background: var(--rail-hover);
+  color: var(--rail-ink);
 }
 
 .rail-error {
@@ -766,7 +862,7 @@ code {
   display: inline-flex;
   gap: 2px;
   padding: 2px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--rail-line);
   border-radius: 9px;
   width: fit-content;
   margin-bottom: 10px;
@@ -775,19 +871,20 @@ code {
 .theme-option {
   background: transparent;
   border: 0;
-  color: var(--on-dark-muted);
+  color: var(--rail-ink-muted);
   padding: 4px 9px;
   border-radius: 7px;
   font-size: 11.5px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .theme-option:hover {
-  color: var(--on-dark);
+  color: var(--rail-ink);
 }
 
 .theme-option.active {
-  background: var(--on-dark);
-  color: var(--green-deep);
+  background: var(--rail-active-bg);
+  color: var(--rail-active-ink);
   font-weight: 550;
 }
 
@@ -797,13 +894,13 @@ code {
   flex-direction: column;
   gap: 8px;
   font-size: 12.5px;
-  color: var(--on-dark-soft);
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--rail-ink-soft);
+  border-top: 1px solid var(--rail-line);
   padding-top: 16px;
 }
 
 .rail-who {
-  color: var(--on-dark);
+  color: var(--rail-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -839,26 +936,38 @@ code {
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 18px 34px 15px;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar-inner {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-  padding: 22px 34px 16px;
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: color-mix(in srgb, var(--paper) 90%, transparent);
-  backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--line);
+  max-width: 1180px;
 }
 
 .topbar h1 {
-  font-size: clamp(1.5rem, 2.3vw, 1.9rem);
+  font-size: clamp(1.5rem, 2.3vw, 1.85rem);
   letter-spacing: -0.02em;
 }
 
 .topbar .eyebrow {
   margin-bottom: 4px;
+}
+
+.topbar-note {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+  padding-bottom: 4px;
+  white-space: nowrap;
 }
 
 .topbar-note {
@@ -876,7 +985,7 @@ code {
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 .columns {
@@ -891,7 +1000,7 @@ code {
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 24px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--card-sheen);
 }
 
 /* Explanatory lines should not run the full width of a wide card. */
@@ -909,11 +1018,13 @@ code {
 }
 
 .card-head h3 {
-  font-size: 16.5px;
+  font-size: 16px;
+  letter-spacing: -0.012em;
 }
 
 .count {
-  font-size: 12px;
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -979,25 +1090,26 @@ code {
 }
 
 .stat {
-  background: var(--card);
+  background: linear-gradient(180deg, var(--surface-soft), var(--card));
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 16px 18px;
+  border-radius: 16px;
+  padding: 15px 18px 16px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   box-shadow: var(--shadow-soft);
 }
 
 .stat strong {
   font-family: var(--display);
-  font-size: 26px;
-  line-height: 1.1;
+  font-size: 29px;
+  line-height: 1.15;
   color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }
 
 .stat span {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -1227,7 +1339,8 @@ code {
 
 .segmented {
   display: inline-flex;
-  background: var(--paper-2);
+  background: var(--seg-bg);
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 3px;
   gap: 2px;
@@ -1240,13 +1353,18 @@ code {
   padding: 7px 14px;
   font-size: 13px;
   color: var(--ink-soft);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.seg:hover {
+  color: var(--ink);
 }
 
 .seg.active {
-  background: var(--card);
+  background: var(--seg-active);
   color: var(--accent);
   font-weight: 550;
-  box-shadow: 0 1px 3px rgba(30, 38, 34, 0.12);
+  box-shadow: var(--seg-shadow);
 }
 
 .toolbar-actions {
@@ -1369,7 +1487,7 @@ code {
   background-color: var(--surface-soft);
   background-image: repeating-linear-gradient(
     to bottom,
-    rgba(227, 223, 210, 0.9) 0 1px,
+    var(--grid-line) 0 1px,
     transparent 1px 7.1428%
   );
 }
@@ -1439,7 +1557,7 @@ code {
 .drawer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(22, 32, 26, 0.34);
+  background: var(--overlay);
   display: flex;
   justify-content: flex-end;
   z-index: 40;
@@ -1448,6 +1566,7 @@ code {
 
 .drawer {
   background: var(--card);
+  border: 1px solid var(--line);
   border-radius: 18px;
   width: 100%;
   max-width: 400px;
@@ -1581,7 +1700,7 @@ code {
 }
 
 .note-item:hover {
-  background: var(--paper);
+  background: var(--surface-soft);
 }
 
 .note-item.active {
@@ -1690,9 +1809,14 @@ code {
 }
 
 .chat-question {
-  font-size: 14px;
-  font-family: var(--display);
-  color: var(--accent);
+  align-self: flex-start;
+  max-width: 92%;
+  font-size: 13.5px;
+  color: var(--accent-strong);
+  background: var(--green-soft);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px 12px 12px 4px;
+  padding: 8px 13px;
 }
 
 .chat-answer {
@@ -1753,7 +1877,7 @@ code {
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--on-dark-muted);
+  color: var(--rail-ink-muted);
 }
 
 .wizard {
@@ -1810,8 +1934,8 @@ code {
 }
 
 .wizard-step.active > span {
-  background: var(--green);
-  color: var(--on-dark);
+  background: var(--btn-bg);
+  color: var(--btn-ink);
 }
 
 .wizard-step.done > span {
@@ -1882,9 +2006,10 @@ code {
 }
 
 .tag.active {
-  background: var(--green);
-  border-color: var(--accent);
-  color: var(--on-dark);
+  background: var(--btn-bg);
+  border-color: var(--btn-bg);
+  color: var(--btn-ink);
+  font-weight: 550;
 }
 
 .form-group {
@@ -1960,11 +2085,12 @@ code {
 
 /* Syllabus tracker, exam coverage and inline task editing */
 .progress {
-  height: 8px;
+  height: 9px;
   border-radius: 999px;
   background: var(--paper-2);
+  box-shadow: inset 0 1px 2px rgba(16, 26, 20, 0.14);
   overflow: hidden;
-  margin: 12px 0 6px;
+  margin: 14px 0 8px;
 }
 
 .progress > span {
@@ -1972,7 +2098,7 @@ code {
   height: 100%;
   border-radius: 999px;
   background: var(--green);
-  transition: width 0.2s ease;
+  transition: width 0.25s ease;
 }
 
 .card-head h3 .subject-dot {
@@ -1997,6 +2123,10 @@ code {
   font-size: 13.5px;
   color: var(--ink-soft);
   cursor: pointer;
+}
+
+.chapter:hover span {
+  color: var(--ink);
 }
 
 .chapter input {
@@ -2104,25 +2234,51 @@ code {
   .rail {
     position: static;
     height: auto;
-    flex-direction: row;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'top books'
+      'nav nav'
+      'foot foot';
     align-items: center;
-    gap: 10px 14px;
+    gap: 10px 12px;
     padding: 12px 16px;
-    overflow-x: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
   .rail-top {
-    flex: none;
+    grid-area: top;
   }
   .rail-tag,
-  .rail-who {
+  .rail-who,
+  .rail-book-label,
+  .rail-section {
     display: none;
   }
-  .rail-nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 2px;
+  .rail-books {
+    grid-area: books;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rail-book-select {
     flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+  .rail-book-actions {
+    flex: none;
+  }
+  .rail-nav {
+    grid-area: nav;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .rail-nav::-webkit-scrollbar {
+    display: none;
   }
   .rail-link {
     white-space: nowrap;
@@ -2130,11 +2286,13 @@ code {
     padding: 8px 10px;
   }
   .rail-foot {
+    grid-area: foot;
     margin: 0;
-    flex: none;
     flex-direction: row;
     align-items: center;
     gap: 10px;
+    border-top: 0;
+    padding-top: 0;
   }
   .theme-switch {
     margin-bottom: 0;
@@ -2143,7 +2301,10 @@ code {
     white-space: nowrap;
   }
   .topbar {
-    padding: 22px 18px 0;
+    padding: 16px 18px 12px;
+  }
+  .topbar-note {
+    display: none;
   }
   .content {
     padding: 16px 18px 0;
@@ -2244,7 +2405,7 @@ code {
     align-items: flex-start;
     gap: 6px;
   }
-  .topbar {
+  .topbar-inner {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
@@ -2323,6 +2484,11 @@ a.btn {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  transition: border-color 0.15s ease;
+}
+
+.source-item:hover {
+  border-color: var(--line-strong);
 }
 
 .source-head {
@@ -2545,7 +2711,7 @@ a.btn {
 /* Revision: flashcards and slides */
 
 .revision-card {
-  background: var(--paper);
+  background: var(--surface-tint);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 18px;

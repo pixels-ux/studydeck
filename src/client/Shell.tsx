@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { fmtDateLong, todayISO } from './dates'
 import Home from './Home'
 import Library from './Library'
 import Notes from './Notes'
@@ -222,9 +223,12 @@ export default function Shell() {
 
       <div className="main">
         <header className="topbar">
-          <div>
-            <p className="eyebrow">{hint}</p>
-            <h1>{title}</h1>
+          <div className="topbar-inner">
+            <div>
+              <p className="eyebrow">{hint}</p>
+              <h1>{title}</h1>
+            </div>
+            <p className="topbar-note">{fmtDateLong(todayISO())}</p>
           </div>
         </header>
         <div className="content">

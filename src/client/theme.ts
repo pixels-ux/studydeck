@@ -18,7 +18,7 @@ function systemPrefersDark(): boolean {
 }
 
 /** The browser paints its own chrome with this, so it has to match the page. */
-const BROWSER_CHROME = { light: '#f3f1ea', dark: '#121915' }
+const BROWSER_CHROME = { light: '#f4f2ea', dark: '#0d1411' }
 
 function paintBrowserChrome(theme: 'light' | 'dark'): void {
   document

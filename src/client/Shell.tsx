@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import CommandSearch from './CommandSearch'
 import { fmtDateLong, todayISO } from './dates'
 import Home from './Home'
@@ -77,6 +77,7 @@ export default function Shell() {
   const [bookError, setBookError] = useState('')
   const [theme, setTheme] = useState<ThemeChoice>(themeChoice)
   const [searchOpen, setSearchOpen] = useState(false)
+  const searchButton = useRef<HTMLButtonElement>(null)
   const [focus, setFocus] = useState<SearchFocus | null>(null)
 
   const pickTheme = (choice: ThemeChoice) => {
@@ -149,6 +150,12 @@ export default function Shell() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  /** Closing the box puts the keyboard back on the button that opened it. */
+  const closeSearch = () => {
+    setSearchOpen(false)
+    searchButton.current?.focus()
+  }
 
   const pick = (hit: SearchHit) => {
     setSearchOpen(false)
@@ -293,6 +300,7 @@ export default function Shell() {
             <div className="topbar-tools">
               <button
                 type="button"
+                ref={searchButton}
                 className="search-open"
                 aria-label="Search everything"
                 onClick={() => setSearchOpen(true)}
@@ -353,11 +361,7 @@ export default function Shell() {
           )}
         </div>
       </div>
-      <CommandSearch
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onPick={pick}
-      />
+      <CommandSearch open={searchOpen} onClose={closeSearch} onPick={pick} />
     </div>
   )
 }

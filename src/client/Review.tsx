@@ -181,20 +181,30 @@ export default function Review({
   }
 
   if (finished) {
+    // The server hands out at most forty cards at a time, so a long backlog
+    // ends a batch instead of the day.
+    const moreDue = Math.max(
+      0,
+      queue.summary.due + queue.summary.fresh - queue.cards.length,
+    )
     return (
       <section className="card review-empty">
-        <p className="eyebrow">All caught up</p>
+        <p className="eyebrow">{moreDue > 0 ? 'Batch done' : 'All caught up'}</p>
         <h3>
-          {data.reviewStats.answeredToday === 1
-            ? 'You answered one card today'
-            : `You answered ${data.reviewStats.answeredToday} cards today`}
+          {moreDue > 0
+            ? `${moreDue} more ${moreDue === 1 ? 'card' : 'cards'} due today`
+            : data.reviewStats.answeredToday === 1
+              ? 'You answered one card today'
+              : `You answered ${data.reviewStats.answeredToday} cards today`}
         </h3>
         <p className="muted">
-          {data.reviewStats.answeredToday === 0
-            ? 'Nothing was due. New cards appear here the day after you make a deck.'
-            : queue.summary.nextDue
-              ? `The next cards come back on ${fmtDate(queue.summary.nextDue)}.`
-              : 'Every card is scheduled. Studydeck will bring them back when they are due.'}
+          {moreDue > 0
+            ? 'The queue is handed out forty cards at a time, so a long backlog does not become one endless sitting. Take a break, or keep going.'
+            : data.reviewStats.answeredToday === 0
+              ? 'Nothing was due. New cards appear here the day after you make a deck.'
+              : queue.summary.nextDue
+                ? `The next cards come back on ${fmtDate(queue.summary.nextDue)}.`
+                : 'Every card is scheduled. Studydeck will bring them back when they are due.'}
         </p>
         {data.reviewStats.total > 0 ? (
           <>
@@ -210,7 +220,7 @@ export default function Review({
             Back to Today
           </button>
           <button className="btn ghost" onClick={() => void load()}>
-            Check the queue again
+            {moreDue > 0 ? 'Review the next forty' : 'Check the queue again'}
           </button>
         </div>
       </section>

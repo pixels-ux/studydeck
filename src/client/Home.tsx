@@ -141,11 +141,35 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
               {data.review.fresh
                 ? `${data.review.fresh} new · ${data.review.due} coming back. `
                 : ''}
+              {data.reviewStats.streak > 0
+                ? `${data.reviewStats.streak} day streak. `
+                : ''}
               Ten minutes of recall now beats an hour of rereading later.
             </p>
           </div>
           <button className="btn primary" onClick={() => onNavigate('review')}>
             Review now
+          </button>
+        </section>
+      ) : data.reviewStats.streak > 0 ? (
+        <section className="review-strip quiet">
+          <div>
+            <p className="eyebrow">Review</p>
+            <h3>
+              {data.reviewStats.streak === 1
+                ? 'One day in a row'
+                : `${data.reviewStats.streak} days in a row`}
+            </h3>
+            <p className="muted">
+              Nothing due today
+              {data.review.nextDue
+                ? `. The next cards come back on ${fmtDate(data.review.nextDue)}`
+                : ''}
+              .
+            </p>
+          </div>
+          <button className="btn ghost" onClick={() => onNavigate('review')}>
+            Open review
           </button>
         </section>
       ) : null}

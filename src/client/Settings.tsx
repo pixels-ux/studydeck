@@ -57,6 +57,50 @@ export default function Settings({
 
       <section className="card">
         <div className="card-head">
+          <h3>Keyboard</h3>
+          <span className="count">Works anywhere</span>
+        </div>
+        <ul className="shortcut-list">
+          <li>
+            <span className="shortcut-keys">
+              <kbd>⌘</kbd>
+              <kbd>K</kbd>
+              <span className="shortcut-or">or</span>
+              <kbd>Ctrl</kbd>
+              <kbd>K</kbd>
+            </span>
+            <span>Search notes, material, work, chapters and notebooks</span>
+          </li>
+          <li>
+            <span className="shortcut-keys">
+              <kbd>Esc</kbd>
+            </span>
+            <span>Close the search</span>
+          </li>
+          <li>
+            <span className="shortcut-keys">
+              <kbd>Space</kbd>
+            </span>
+            <span>Show the answer while reviewing</span>
+          </li>
+          <li>
+            <span className="shortcut-keys">
+              <kbd>1</kbd>
+              <kbd>2</kbd>
+              <kbd>3</kbd>
+              <kbd>4</kbd>
+            </span>
+            <span>Again, Hard, Good, Easy — once the answer is showing</span>
+          </li>
+        </ul>
+        <p className="fineprint">
+          The tab title carries the number of cards due, so another tab shows
+          what is waiting.
+        </p>
+      </section>
+
+      <section className="card">
+        <div className="card-head">
           <h3>Your data</h3>
           <span className="count">
             {data.notebooks.length} notebook

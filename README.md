@@ -82,6 +82,19 @@ bun start         # http://localhost:3000
   browser, and a dark page is painted before the first frame so nothing flashes
   light.
 
+## Keyboard
+
+| Keys | Does |
+| --- | --- |
+| ⌘K or Ctrl+K | Open the one search box from anywhere |
+| Esc | Close it |
+| Space or Enter | Show the answer during review |
+| 1 – 4 | Again, Hard, Good, Easy |
+
+The browser tab carries the number of cards due — `(4) Studydeck…` — so another
+tab tells you what is waiting. Settings lists the same keys, so they are not a
+secret.
+
 ## Your data
 
 Everything is stored in `data/studydeck.db` next to the project, created on
@@ -160,7 +173,8 @@ instead of saving an empty item. Then:
   in Notes, ready to edit.
 - **Flashcards** and **Slides** turn it into revision material: 6 to 12 question
   and answer cards, or a 6 to 10 slide outline. Both are saved in Notes, and
-  **Revise** on that note flips through the cards or steps through the slides.
+  **Revise** on that note flips through the cards or steps through the slides,
+  and hands a deck to Anki as a two-column CSV.
   Choose a subject under **Work from** and the same buttons cover every chapter
   of that subject in one set, each item given a share of the prompt so a whole
   topic is represented.
@@ -204,7 +218,9 @@ four answers. Space or Enter reveals; `1` to `4` answer.
 | Easy | It was obvious | much later, with a higher ease |
 
 A new card starts at one day and grows towards a year, so a deck you have not
-seen for a month does not dump every card on you at once. Each answer shows the
+seen for a month does not dump every card on you at once. The queue is handed
+out forty cards at a time: when a batch is done the page says how many are still
+due and offers the next forty, instead of calling it a day. Each answer shows the
 next interval on its button, and the rail and Today both show what is waiting.
 Revising never spends an AI action: the cards already exist, and the dates come
 from your own answers.

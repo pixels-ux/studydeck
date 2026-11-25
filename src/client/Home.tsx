@@ -53,6 +53,7 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
     .filter((item) => item.examDate && item.examDate >= today)
     .sort((a, b) => a.examDate.localeCompare(b.examDate))[0]
 
+  const cardsDue = data.review.due + data.review.fresh
   const classLevel = data.profile?.classLevel ?? 10
   const covered = new Set(
     data.syllabus.map((tick) => `${tick.subjectId}::${tick.chapter}`),
@@ -126,6 +127,28 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
           )}
         </div>
       </section>
+
+      {cardsDue > 0 ? (
+        <section className="review-strip">
+          <div>
+            <p className="eyebrow">Review</p>
+            <h3>
+              {cardsDue === 1
+                ? 'One card is due today'
+                : `${cardsDue} cards are due today`}
+            </h3>
+            <p className="muted">
+              {data.review.fresh
+                ? `${data.review.fresh} new · ${data.review.due} coming back. `
+                : ''}
+              Ten minutes of recall now beats an hour of rereading later.
+            </p>
+          </div>
+          <button className="btn primary" onClick={() => onNavigate('review')}>
+            Review now
+          </button>
+        </section>
+      ) : null}
 
       <DayCheckin />
 

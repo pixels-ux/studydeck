@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import type {
   Citation,
   LibraryMessage,
@@ -56,8 +56,12 @@ function snippetOf(text: string, query: string): string {
 
 export default function Library({
   onNavigate,
+  focus,
+  onFocused,
 }: {
   onNavigate?: (tab: 'notes') => void
+  focus?: string | null
+  onFocused?: () => void
 }) {
   const {
     data,
@@ -111,6 +115,22 @@ export default function Library({
     (source) => !scope || source.subjectId === scope,
   )
   const ready = data.ai.enabled && materialHere
+
+  // The search box opens one item: its subject is shown and its title filtered.
+  useEffect(() => {
+    if (!focus) return
+    const source = data.sources.find((item) => item.id === focus)
+    if (source) {
+      setScope(source.subjectId ?? '')
+      setFilter(source.title)
+      window.setTimeout(() => {
+        document
+          .getElementById(`source-${source.id}`)
+          ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }, 60)
+    }
+    onFocused?.()
+  }, [focus])
   const query = searchQuery.trim()
   const noteHits =
     hits === null || !query
@@ -568,7 +588,7 @@ export default function Library({
           ) : (
             <ul className="source-list">
               {sources.map((source) => (
-                <li key={source.id} className="source-item">
+                <li key={source.id} id={`source-${source.id}`} className="source-item">
                   <div className="source-head">
                     <span
                       className="dot"

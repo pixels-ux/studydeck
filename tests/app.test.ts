@@ -372,7 +372,7 @@ test('the workspace exports, becomes a calendar file and can be reset', async ()
     profile: { classLevel: number } | null
   }
   expect(file.app).toBe('Studydeck')
-  expect(file.version).toBe(2)
+  expect(file.version).toBe(3)
   expect(file.notebooks).toHaveLength(1)
   expect(file.notebooks[0]!.subjects.length).toBeGreaterThan(0)
   expect(file.profile?.classLevel).toBe(10)

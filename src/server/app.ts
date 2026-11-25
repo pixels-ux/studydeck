@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { syllabusBrief, unitsFor } from '../shared/curriculum.ts'
+import { REVIEW_RESULTS } from '../shared/review.ts'
 import type {
   AiActionInput,
   Citation,
@@ -14,6 +15,7 @@ import type {
   Plan,
   Priority,
   LibrarySearchHit,
+  ReviewResult,
   SourceInput,
   SubjectInput,
   TaskInput,
@@ -45,6 +47,7 @@ import {
   type SemanticIndex,
 } from './library.ts'
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers.ts'
+import { gradeCard, reviewQueue } from './review.ts'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
   BASE_OWNER,
@@ -395,7 +398,9 @@ const MAX_IMPORT_BYTES = 32 * 1024 * 1024
 const EXTRACT_PATH = '/api/library/extract'
 const MAX_EXTRACT_BYTES = 25 * 1024 * 1024
 const MAX_IMPORT_STATEMENTS = 5_000
-const BACKUP_VERSION = 2
+const BACKUP_VERSION = 3
+/** Version 2 files are still read: they simply carry no review history. */
+const IMPORT_VERSIONS = [2, BACKUP_VERSION]
 const MAX_TIME = 9_000_000_000_000
 const MAX_LIBRARY_BODY = 8_000
 const MAX_CHAPTER = 200
@@ -442,6 +447,16 @@ type ImportProfile = {
   studyHours: number
   setupAt: number
 }
+type ImportReview = {
+  noteId: string
+  cardKey: string
+  dueDate: string
+  intervalDays: number
+  ease: number
+  lapses: number
+  lastResult: string
+  reviewedAt: number
+}
 type Backup = {
   profile: ImportProfile | null
   subjects: ImportSubject[]
@@ -453,6 +468,7 @@ type Backup = {
   library: ImportMessage[]
   days: ImportDay[]
   syllabus: ImportTick[]
+  reviews: ImportReview[]
 }
 type ImportCounts = {
   subjects: number
@@ -464,6 +480,7 @@ type ImportCounts = {
   library: number
   days: number
   syllabus: number
+  reviews: number
   profile: number
 }
 
@@ -477,6 +494,7 @@ const emptyCounts = (): ImportCounts => ({
   library: 0,
   days: 0,
   syllabus: 0,
+  reviews: 0,
   profile: 0,
 })
 
@@ -586,7 +604,7 @@ function parseBackup(
       profile: parsed.backup.profile,
     }
   }
-  if (version !== BACKUP_VERSION)
+  if (!IMPORT_VERSIONS.includes(version))
     return { error: 'That backup comes from a different version of Studydeck.' }
 
   const profile = parseImportProfile(body.profile)
@@ -760,6 +778,47 @@ function parseNotebookData(
     syllabus.push({ subjectId, chapter, doneAt: stamp(record.doneAt) ?? Date.now() })
   }
 
+  // Version 2 files from before review scheduling simply have none of these.
+  const reviewList = backupRecords(body.reviews, 5_000)
+  if (!reviewList) return { error: IMPORT_FAILED }
+  const reviews: ImportReview[] = []
+  for (const record of reviewList) {
+    const noteId = identifier(record.noteId)
+    const cardKeyValue = clean(record.cardKey, 8)
+    const dueDate = clean(record.dueDate, 10)
+    const intervalDays = whole(record.intervalDays, 0, 365)
+    const ease = whole(record.ease, 100, 400)
+    const lapses = whole(record.lapses, 0, 1_000)
+    const reviewedAt = stamp(record.reviewedAt)
+    if (
+      !noteId ||
+      !/^[0-9a-z]{1,8}$/.test(cardKeyValue) ||
+      !DATE_PATTERN.test(dueDate) ||
+      intervalDays === null ||
+      ease === null ||
+      lapses === null ||
+      reviewedAt === null
+    )
+      return { error: 'That backup has review progress Studydeck could not read.' }
+    if (
+      reviews.some(
+        (row) => row.noteId === noteId && row.cardKey === cardKeyValue,
+      )
+    )
+      continue
+    reviews.push({
+      noteId,
+      cardKey: cardKeyValue,
+      dueDate,
+      intervalDays,
+      ease,
+      lapses,
+      lastResult:
+        REVIEW_RESULTS.find((option) => option === record.lastResult) ?? '',
+      reviewedAt,
+    })
+  }
+
   const profile = parseImportProfile(body.profile)
   if (profile === undefined)
     return { error: 'That backup has a class setup Studydeck could not read.' }
@@ -776,6 +835,7 @@ function parseNotebookData(
       library,
       days,
       syllabus,
+      reviews,
     },
   }
 }
@@ -918,6 +978,12 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         .first<ProfileRow>(),
     ])
     const { provider } = await effectiveProvider(db, env, BASE_OWNER)
+    const review = await reviewQueue(
+      db,
+      owner,
+      new Date().toISOString().slice(0, 10),
+      0,
+    )
     return {
       notebooks: await notebooks(),
       notebookId: notebook.id,
@@ -932,6 +998,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         subjectId: row.subject_id,
         chapter: row.chapter,
       })),
+      review: review.summary,
       profile: profileRow ? mapProfile(profileRow) : null,
       ai: {
         enabled: Boolean(provider),
@@ -1026,6 +1093,21 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         )
         .bind(owner)
         .all<LibraryMessageRow>()
+      const reviews = await db
+        .prepare(
+          'SELECT note_id, card_key, due_date, interval_days, ease, lapses, last_result, reviewed_at FROM card_reviews WHERE owner_sub = ?',
+        )
+        .bind(owner)
+        .all<{
+          note_id: string
+          card_key: string
+          due_date: string
+          interval_days: number
+          ease: number
+          lapses: number
+          last_result: string
+          reviewed_at: number
+        }>()
       parts.push({
         notebook: {
           id: notebook.id,
@@ -1041,13 +1123,23 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         syllabus: data.syllabus,
         sources: data.sources,
         library: messages.results.map(mapLibraryMessage),
+        reviews: reviews.results.map((row) => ({
+          noteId: row.note_id,
+          cardKey: row.card_key,
+          dueDate: row.due_date,
+          intervalDays: row.interval_days,
+          ease: row.ease,
+          lapses: row.lapses,
+          lastResult: row.last_result,
+          reviewedAt: row.reviewed_at,
+        })),
       })
     }
     return c.body(
       JSON.stringify(
         {
           app: 'Studydeck',
-          version: 2,
+          version: BACKUP_VERSION,
           exportedAt: new Date().toISOString(),
           profile,
           notebooks: parts,
@@ -1081,6 +1173,7 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       messageRows,
       dayRows,
       tickRows,
+      reviewRows,
     ] = await Promise.all([
       db
         .prepare('SELECT id, name FROM subjects WHERE owner_sub = ?')
@@ -1118,6 +1211,10 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         .prepare('SELECT subject_id, chapter FROM syllabus_progress WHERE owner_sub = ?')
         .bind(owner)
         .all<{ subject_id: string; chapter: string }>(),
+      db
+        .prepare('SELECT note_id, card_key FROM card_reviews WHERE owner_sub = ?')
+        .bind(owner)
+        .all<{ note_id: string; card_key: string }>(),
     ])
 
     const existingSubjectIds = new Set(subjectRows.results.map((row) => row.id))
@@ -1133,6 +1230,9 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const dayDates = new Set(dayRows.results.map((row) => row.date))
     const tickKeys = new Set(
       tickRows.results.map((row) => `${row.subject_id}::${row.chapter}`),
+    )
+    const reviewKeys = new Set(
+      reviewRows.results.map((row) => `${row.note_id}::${row.card_key}`),
     )
 
     const added = emptyCounts()
@@ -1368,6 +1468,33 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
           .bind(owner, subjectId, tick.chapter, tick.doneAt),
       )
       added.syllabus += 1
+    }
+
+    for (const review of backup.reviews) {
+      const cardId = `${review.noteId}::${review.cardKey}`
+      if (!noteIds.has(review.noteId) || reviewKeys.has(cardId)) {
+        skipped.reviews += 1
+        continue
+      }
+      reviewKeys.add(cardId)
+      statements.push(
+        db
+          .prepare(
+            'INSERT INTO card_reviews (owner_sub, note_id, card_key, due_date, interval_days, ease, lapses, last_result, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            owner,
+            review.noteId,
+            review.cardKey,
+            review.dueDate,
+            review.intervalDays,
+            review.ease,
+            review.lapses,
+            review.lastResult,
+            review.reviewedAt,
+          ),
+      )
+      added.reviews += 1
     }
 
     return { added, skipped, statements }
@@ -2025,13 +2152,19 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   })
 
   app.delete('/api/notes/:id', async (c) => {
+    const owner = c.get('owner')
+    const id = c.req.param('id')
     const removed = await db
       .prepare('DELETE FROM study_notes WHERE id = ? AND owner_sub = ? RETURNING id')
-      .bind(c.req.param('id'), c.get('owner'))
+      .bind(id, owner)
       .first()
-    return removed
-      ? c.json({ ok: true })
-      : c.json({ error: 'Note not found.' }, 404)
+    if (!removed) return c.json({ error: 'Note not found.' }, 404)
+    // A deck's review history goes when the deck does.
+    await db
+      .prepare('DELETE FROM card_reviews WHERE note_id = ? AND owner_sub = ?')
+      .bind(id, owner)
+      .run()
+    return c.json({ ok: true })
   })
 
   /* The library: material, search, grounded questions and transformations. */
@@ -2878,6 +3011,47 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   }
 
   /** Which service answers, and where its key comes from. Never the key. */
+  /* Review: the flashcards the library made, scheduled over days. */
+
+  /** Today's cards, the ones due longest first, then cards that are new. */
+  app.get('/api/review', async (c) => {
+    const limit = whole(c.req.query('limit'), 1, 100) ?? 40
+    const today = new Date().toISOString().slice(0, 10)
+    return c.json(await reviewQueue(db, c.get('owner'), today, limit))
+  })
+
+  /** One answer from the review screen; no model is called, so no quota is used. */
+  app.post('/api/review', async (c) => {
+    const body = await readBody(c.req.raw)
+    const noteId = identifier(body?.noteId)
+    const cardKeyValue =
+      typeof body?.cardKey === 'string' && /^[0-9a-z]{1,8}$/.test(body.cardKey)
+        ? body.cardKey
+        : null
+    const result = REVIEW_RESULTS.find((option) => option === body?.result)
+    if (!noteId || !cardKeyValue || !result)
+      return c.json({ error: 'That review answer could not be read.' }, 400)
+    const graded = await gradeCard(
+      db,
+      c.get('owner'),
+      noteId,
+      cardKeyValue,
+      result,
+      new Date().toISOString().slice(0, 10),
+    )
+    if (!graded.ok)
+      return c.json(
+        {
+          error:
+            graded.reason === 'note'
+              ? 'That flashcard deck is no longer here.'
+              : 'That card is no longer in its deck.',
+        },
+        404,
+      )
+    return c.json({ card: graded.card })
+  })
+
   app.get('/api/ai/settings', async (c) => {
     const owner = BASE_OWNER
     const stored = await readAiKey(db, owner)

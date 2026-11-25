@@ -13,7 +13,13 @@ function draftOf(note: Note | null): NoteInput {
     : emptyDraft
 }
 
-export default function Notes() {
+export default function Notes({
+  focus,
+  onFocused,
+}: {
+  focus?: string | null
+  onFocused?: () => void
+}) {
   const { data, saveNote, deleteNote } = useWorkspace()
   const [selectedId, setSelectedId] = useState<string | null>(
     data.notes[0]?.id ?? null,
@@ -47,6 +53,16 @@ export default function Notes() {
       setCreating(false)
     }
   }, [])
+
+  // The search box can open a note directly.
+  useEffect(() => {
+    if (!focus) return
+    if (data.notes.some((note) => note.id === focus)) {
+      setSelectedId(focus)
+      setCreating(false)
+    }
+    onFocused?.()
+  }, [focus])
 
   const dirty =
     creating ||

@@ -207,7 +207,7 @@ test('a saved check-in and its brief come back in the backup', async () => {
     version: number
     notebooks: { days: DayLog[] }[]
   }
-  expect(exported.version).toBe(2)
+  expect(exported.version).toBe(3)
   const days = exported.notebooks[0]!.days
   expect(days).toHaveLength(1)
   expect(days[0]!.date).toBe(DATE)

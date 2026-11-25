@@ -182,6 +182,37 @@ export type AiState = {
   model: string | null
 }
 
+/** One answer on a flashcard: four buttons, each with its own next date. */
+export type ReviewResult = 'again' | 'hard' | 'good' | 'easy'
+
+/** A card in today's queue, with what the schedule knows about it. */
+export type ReviewCard = {
+  noteId: string
+  noteTitle: string
+  subjectId: string | null
+  /** A stable handle for the card inside its deck. */
+  key: string
+  question: string
+  answer: string
+  dueDate: string
+  intervalDays: number
+  ease: number
+  lapses: number
+  lastResult: ReviewResult | ''
+  reviewedAt: number
+  /** True for a card that has never been answered. */
+  fresh: boolean
+}
+
+/** How much review work is waiting, for Today and the rail. */
+export type ReviewSummary = {
+  due: number
+  fresh: number
+  total: number
+  /** The first future day a card comes back, or "" when none is scheduled. */
+  nextDue: string
+}
+
 export type Profile = {
   classLevel: number
   /** School days as Monday = 0 … Sunday = 6. */
@@ -234,6 +265,8 @@ export type WorkspaceData = {
   actions: AiAction[]
   /** NCERT chapters the student has ticked off. */
   syllabus: SyllabusTick[]
+  /** Flashcards due today, and how many exist in the notebook. */
+  review: ReviewSummary
   /** Material the student added to the library. */
   sources: Source[]
   /** Saved questions and answers about that material. */

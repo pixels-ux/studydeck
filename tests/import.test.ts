@@ -162,7 +162,7 @@ test('a backup restores every notebook it holds', async () => {
   const owner = scopedOwner(sourceData.notebookId)
   await seed(source.db, owner)
   const file = await backupOf(source.db)
-  expect(file.version).toBe(2)
+  expect(file.version).toBe(3)
   expect(file.notebooks).toHaveLength(1)
 
   const target = harness()

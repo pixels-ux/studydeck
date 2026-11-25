@@ -52,6 +52,10 @@ bun start         # http://localhost:3000
   today and next week.
 - **Syllabus** — NCERT chapters ticked off per subject.
 - **Notes** — private notes per subject.
+- **Search** — one box, opened with ⌘K or Ctrl+K, over this notebook's notes,
+  material, work and chapters, plus the names of your other notebooks. Picking a
+  result opens the note, filters the Library to that material, scrolls to the
+  task or chapter, or switches book.
 - **Library** — your own material: paste a chapter or add a text file, search
   inside it, ask questions answered only from it with citations, and turn one
   item or a whole subject into revision notes, practice questions, flashcards or
@@ -61,9 +65,9 @@ bun start         # http://localhost:3000
   notes, day check-ins and library chats. Your class setup and any saved AI key
   are shared, since there is one student and one school week.
 - **Your data** — download every notebook — subjects, timetable, tasks, notes,
-  day check-ins (with their AI briefs), syllabus, library material and the
-  library conversations about it — as one JSON file, load one back, or empty the
-  notebook you are looking at.
+  day check-ins (with their AI briefs), syllabus, library material, the library
+  conversations about it and each deck's review progress — as one JSON file,
+  load one back, or empty the notebook you are looking at.
 - **Calendar** — export the week and the revision plan as an `.ics` file for
   Google Calendar, Apple Calendar or Outlook.
 - **AI study desk** — summarise your notes into revision points, or ask a
@@ -159,6 +163,9 @@ instead of saving an empty item. Then:
   Choose a subject under **Work from** and the same buttons cover every chapter
   of that subject in one set, each item given a share of the prompt so a whole
   topic is represented.
+- **Review** — those flashcard decks come back on their own schedule, a few
+  cards a day, with the next interval shown on every answer. No AI is used to
+  revise.
 
 Material is cut into paragraphs, and a question sends the paragraphs that share
 its rarest words — plus the passages that only match by meaning. Finding by
@@ -177,6 +184,33 @@ searching material needs no AI key; asking and transforming do.
 Material, the chat about it and the transformations all live in the same local
 SQLite file as the rest of your workspace, so there is no separate notebook
 service to run and nothing is sent away to be indexed.
+
+## Review
+
+A flashcard deck made in the Library is also a schedule. Open **Review** — or
+press the button on Today — and Studydeck shows the cards due today: the ones
+you have never seen, then the ones you missed, ordered by how long they have
+waited.
+
+Read the question, answer it out loud, press **Show answer**, then pick one of
+four answers. Space or Enter reveals; `1` to `4` answer.
+
+| Answer | What it means | Comes back |
+| --- | --- | --- |
+| Again | I did not know it | tomorrow, with a lower ease |
+| Hard | I got there slowly | a little later than last time |
+| Good | I knew it | later, by the card's ease |
+| Easy | It was obvious | much later, with a higher ease |
+
+A new card starts at one day and grows towards a year, so a deck you have not
+seen for a month does not dump every card on you at once. Each answer shows the
+next interval on its button, and the rail and Today both show what is waiting.
+Revising never spends an AI action: the cards already exist, and the dates come
+from your own answers.
+
+Progress is stored in the same data file as everything else, goes with the deck
+when you delete it, and travels in a backup. A deck you edit keeps the schedule
+of the cards whose questions did not change; a new question starts fresh.
 
 ## AI study desk
 

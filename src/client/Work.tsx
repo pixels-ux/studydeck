@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import type { Priority, Task, TaskInput } from '../shared/types'
 import { daysBetween, dueLabel, fmtDate, todayISO } from './dates'
 import { useWorkspace } from './workspace'
@@ -14,7 +14,13 @@ function toInput(task: Task, done = task.done) {
   }
 }
 
-export default function Work() {
+export default function Work({
+  focus,
+  onFocused,
+}: {
+  focus?: string | null
+  onFocused?: () => void
+}) {
   const { data, saveTask, deleteTask } = useWorkspace()
   const [title, setTitle] = useState('')
   const [subjectId, setSubjectId] = useState('')
@@ -94,6 +100,18 @@ export default function Work() {
       setBusy(false)
     }
   }
+
+  // A task found by the search box shows even when the filter hides it.
+  useEffect(() => {
+    if (!focus) return
+    setFilter('all')
+    window.setTimeout(() => {
+      document
+        .getElementById(`task-${focus}`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, 80)
+    onFocused?.()
+  }, [focus])
 
   const visible = data.tasks.filter((task) =>
     filter === 'open' ? !task.done : filter === 'done' ? task.done : true,
@@ -223,7 +241,7 @@ export default function Work() {
             </div>
             <ul className="task-list">
               {group.tasks.map((task) => (
-                <li key={task.id} className="task-item">
+                <li key={task.id} id={`task-${task.id}`} className="task-item">
                   {editingId === task.id && draft ? (
                     <form className="task-edit" onSubmit={saveEdit}>
                       <label className="field">

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import CommandSearch from './CommandSearch'
 import { fmtDateLong, todayISO } from './dates'
 import Home from './Home'
 import Library from './Library'
 import Notes from './Notes'
+import Review from './Review'
 import Settings from './Settings'
 import Setup from './Setup'
 import StudyDesk from './StudyDesk'
@@ -10,10 +12,12 @@ import Syllabus from './Syllabus'
 import Timetable from './Timetable'
 import Work from './Work'
 import { rememberTheme, themeChoice, type ThemeChoice } from './theme'
+import type { SearchHit } from './search'
 import { useWorkspace } from './workspace'
 
 export type Tab =
   | 'today'
+  | 'review'
   | 'timetable'
   | 'work'
   | 'syllabus'
@@ -24,6 +28,7 @@ export type Tab =
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'today', label: 'Today', hint: 'Classes, work and exams' },
+  { id: 'review', label: 'Review', hint: 'Flashcards due today' },
   { id: 'timetable', label: 'Timetable', hint: 'Your week and revision plan' },
   { id: 'work', label: 'Work', hint: 'Assignments and deadlines' },
   { id: 'syllabus', label: 'Syllabus', hint: 'NCERT chapters you have covered' },
@@ -36,6 +41,13 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'desk', label: 'AI study desk', hint: 'Summaries and answers from your notes' },
   { id: 'settings', label: 'Settings', hint: 'API keys, appearance and your data' },
 ]
+
+/** What the search box asked a page to open, cleared once it has. */
+type SearchFocus =
+  | { kind: 'note'; id: string }
+  | { kind: 'material'; id: string }
+  | { kind: 'task'; id: string }
+  | { kind: 'chapter'; id: string; chapter: string }
 
 const THEMES = [
   { id: 'system', label: 'Auto' },
@@ -61,6 +73,8 @@ export default function Shell() {
   const [editing, setEditing] = useState(false)
   const [bookError, setBookError] = useState('')
   const [theme, setTheme] = useState<ThemeChoice>(themeChoice)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [focus, setFocus] = useState<SearchFocus | null>(null)
 
   const pickTheme = (choice: ThemeChoice) => {
     rememberTheme(choice)
@@ -113,6 +127,36 @@ export default function Shell() {
     setTab(next)
     if (window.location.hash !== `#/${next}`) window.location.hash = `/${next}`
   }
+  const clearFocus = useCallback(() => setFocus(null), [])
+
+  // ⌘K or Ctrl+K opens the one search box from anywhere.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setSearchOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const pick = (hit: SearchHit) => {
+    setSearchOpen(false)
+    if (hit.kind === 'notebook') {
+      void run(() => switchNotebook(hit.id))
+      return
+    }
+    if (hit.kind === 'chapter') {
+      const [subjectId, ...rest] = hit.id.split('::')
+      setFocus({ kind: 'chapter', id: subjectId ?? '', chapter: rest.join('::') })
+      go('syllabus')
+      return
+    }
+    setFocus({ kind: hit.kind, id: hit.id })
+    go(hit.kind === 'note' ? 'notes' : hit.kind === 'material' ? 'library' : 'work')
+  }
+
   const active = TABS.find((item) => item.id === tab) ?? TABS[0]!
   const needsSetup = !data.profile
 
@@ -188,7 +232,13 @@ export default function Shell() {
                   aria-current={!editing && item.id === tab ? 'page' : undefined}
                   onClick={() => go(item.id)}
                 >
-                  {item.label}
+                  <span>{item.label}</span>
+                  {item.id === 'review' &&
+                  data.review.due + data.review.fresh > 0 ? (
+                    <span className="rail-badge">
+                      {data.review.due + data.review.fresh}
+                    </span>
+                  ) : null}
                 </button>
               ))}
               <button
@@ -231,7 +281,18 @@ export default function Shell() {
               <p className="eyebrow">{hint}</p>
               <h1>{title}</h1>
             </div>
-            <p className="topbar-note">{fmtDateLong(todayISO())}</p>
+            <div className="topbar-tools">
+              <button
+                type="button"
+                className="search-open"
+                aria-label="Search everything"
+                onClick={() => setSearchOpen(true)}
+              >
+                <span className="search-open-label">Search</span>
+                <kbd>⌘K</kbd>
+              </button>
+              <p className="topbar-note">{fmtDateLong(todayISO())}</p>
+            </div>
           </div>
         </header>
         <div className="content">
@@ -240,11 +301,37 @@ export default function Shell() {
           ) : (
             <>
               {tab === 'today' && <Home onNavigate={go} />}
+              {tab === 'review' && <Review onNavigate={go} />}
               {tab === 'timetable' && <Timetable />}
-              {tab === 'work' && <Work />}
-              {tab === 'syllabus' && <Syllabus />}
-              {tab === 'notes' && <Notes />}
-              {tab === 'library' && <Library onNavigate={go} />}
+              {tab === 'work' && (
+                <Work
+                  focus={focus?.kind === 'task' ? focus.id : null}
+                  onFocused={clearFocus}
+                />
+              )}
+              {tab === 'syllabus' && (
+                <Syllabus
+                  focus={
+                    focus?.kind === 'chapter'
+                      ? { subjectId: focus.id, chapter: focus.chapter }
+                      : null
+                  }
+                  onFocused={clearFocus}
+                />
+              )}
+              {tab === 'notes' && (
+                <Notes
+                  focus={focus?.kind === 'note' ? focus.id : null}
+                  onFocused={clearFocus}
+                />
+              )}
+              {tab === 'library' && (
+                <Library
+                  onNavigate={go}
+                  focus={focus?.kind === 'material' ? focus.id : null}
+                  onFocused={clearFocus}
+                />
+              )}
               {tab === 'desk' && <StudyDesk onNavigate={go} />}
               {tab === 'settings' && (
                 <Settings
@@ -257,6 +344,11 @@ export default function Shell() {
           )}
         </div>
       </div>
+      <CommandSearch
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onPick={pick}
+      />
     </div>
   )
 }

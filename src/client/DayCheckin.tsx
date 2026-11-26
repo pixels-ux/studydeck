@@ -9,8 +9,16 @@ import type {
   HomeworkSource,
 } from '../shared/types'
 import { api } from './api'
-import { fmtDuration, fmtTime, minutesNow, parseTimeValue, toTimeValue, todayISO } from './dates'
-import { backlogOf, buildEveningPlan, type Backlog } from './dayPlan'
+import {
+  fmtDate,
+  fmtDuration,
+  fmtTime,
+  minutesNow,
+  parseTimeValue,
+  toTimeValue,
+  todayISO,
+} from './dates'
+import { backlogOf, buildEveningPlan, planWithout, type Backlog } from './dayPlan'
 import Prose from './Prose'
 import { useWorkspace } from './workspace'
 
@@ -58,6 +66,9 @@ export default function DayCheckin() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  // Blocks from earlier days, waiting for a decision.
+  const [carried, setCarried] = useState<Entry[]>([])
+  const [dropped, setDropped] = useState<string[]>([])
 
   // The timetable's coaching block is a class entry too, so count only the
   // real school periods here and mention coaching separately.
@@ -174,9 +185,38 @@ export default function DayCheckin() {
         homework: homework.filter((item) => item.title.trim()),
         covered,
         backlog,
+        recovered: carried.map((entry) => ({
+          id: entry.id,
+          subjectId: entry.subjectId,
+          title: entry.title,
+          minutes: entry.endMin - entry.startMin,
+        })),
       }),
-    [today, freeFrom, freeUntil, homework, covered, backlog],
+    [today, freeFrom, freeUntil, homework, covered, backlog, carried],
   )
+
+  // Revision blocks from earlier days that nothing has replaced.
+  const skipped = useMemo(
+    () =>
+      data.entries
+        .filter(
+          (entry) =>
+            entry.plan === 'intensive' &&
+            entry.kind === 'study' &&
+            entry.date &&
+            entry.date < today,
+        )
+        .sort(
+          (a, b) => b.date.localeCompare(a.date) || a.startMin - b.startMin,
+        ),
+    [data.entries, today],
+  )
+  const openSkipped = skipped.filter(
+    (entry) =>
+      !carried.some((picked) => picked.id === entry.id) &&
+      !dropped.includes(entry.id),
+  )
+  const listedSkipped = [...carried, ...openSkipped.slice(0, 6)]
 
   const savedPlan = data.entries
     .filter((entry) => entry.plan === 'intensive' && entry.date === today)
@@ -235,9 +275,21 @@ export default function DayCheckin() {
         },
       })
       await replaceDayPlan(today, plan.entries)
+      // Carried and dropped blocks leave their old days only now, once tonight
+      // is settled, so changing your mind costs nothing.
+      const leaving = new Set([...plan.pulledIds, ...dropped])
+      for (const day of planWithout(data.entries, leaving))
+        await replaceDayPlan(day.date, day.entries)
+      setCarried([])
+      setDropped([])
+      const pulled = plan.pulledIds.length
       setNotice(
         plan.entries.length
-          ? `Tonight’s plan is on your timetable, ${fmtTime(plan.entries[0]!.startMin)} to ${fmtTime(plan.entries.at(-1)!.endMin)}.`
+          ? `Tonight’s plan is on your timetable, ${fmtTime(plan.entries[0]!.startMin)} to ${fmtTime(plan.entries.at(-1)!.endMin)}.${
+              pulled
+                ? ` ${pulled} earlier block${pulled === 1 ? '' : 's'} came with it.`
+                : ''
+            }`
           : 'Your day is saved. There was no room left for study blocks.',
       )
     } catch (e) {
@@ -553,12 +605,96 @@ export default function DayCheckin() {
             </label>
           </div>
 
+          {listedSkipped.length ? (
+            <div className="recovery">
+              <div className="card-head">
+                <h4>Blocks from earlier days</h4>
+                <span className="count">
+                  {openSkipped.length
+                    ? `${openSkipped.length} not done`
+                    : 'all decided'}
+                </span>
+              </div>
+              <p className="muted small">
+                These revision blocks were planned for a past day and never
+                happened. Bring one into tonight, or drop it for good.
+              </p>
+              <ul className="recovery-list">
+                {listedSkipped.map((entry) => {
+                  const picked = carried.some((item) => item.id === entry.id)
+                  return (
+                    <li key={entry.id} className="recovery-row">
+                      <span className="recovery-main">
+                        <strong>{entry.title}</strong>
+                        <span className="muted">
+                          {fmtDate(entry.date)} ·{' '}
+                          {fmtDuration(entry.endMin - entry.startMin)}
+                          {picked ? ' · pulled into tonight' : ''}
+                        </span>
+                      </span>
+                      {picked ? (
+                        <button
+                          type="button"
+                          className="btn ghost small"
+                          onClick={() =>
+                            setCarried((current) =>
+                              current.filter((item) => item.id !== entry.id),
+                            )
+                          }
+                        >
+                          Not tonight
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="btn ghost small"
+                            onClick={() =>
+                              setCarried((current) => [...current, entry])
+                            }
+                          >
+                            Bring to tonight
+                          </button>
+                          <button
+                            type="button"
+                            className="btn ghost small"
+                            onClick={() =>
+                              setDropped((current) => [...current, entry.id])
+                            }
+                          >
+                            Drop
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+              <p className="fineprint">
+                {openSkipped.length > 6
+                  ? `The newest six are listed; ${openSkipped.length - 6} older ${
+                      openSkipped.length - 6 === 1 ? 'block stays' : 'blocks stay'
+                    } on the timetable. `
+                  : ''}
+                {dropped.length
+                  ? `${dropped.length} dropped block${
+                      dropped.length === 1 ? '' : 's'
+                    } ${dropped.length === 1 ? 'goes' : 'go'} when you save tonight’s plan. `
+                  : ''}
+                A block that does not fit tonight stays where it was.
+              </p>
+            </div>
+          ) : null}
+
           <div className="plan-summary">
             <p>
               <strong>{plan.studyMinutes}</strong> minutes of study,{' '}
               <strong>{plan.breakLength}</strong> minute breaks
               {plan.missedHomeworkMinutes
                 ? ` · ${plan.missedHomeworkMinutes} minutes of homework does not fit`
+                : ''}
+              {plan.missedRecoveryMinutes
+                ? ` · ${plan.missedRecoveryMinutes} minutes from earlier days does not fit`
                 : ''}
             </p>
             <p className="muted small">

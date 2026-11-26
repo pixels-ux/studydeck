@@ -1,4 +1,4 @@
-import type { DayHomework, EntryInput } from '../shared/types'
+import type { DayHomework, Entry, EntryInput } from '../shared/types'
 import { dayIndexOf } from './dates'
 
 /**
@@ -25,6 +25,15 @@ export type Backlog = {
   subjects: BacklogSubject[]
 }
 
+/** A revision block from an earlier day that was never done. */
+export type RecoveredBlock = {
+  /** The timetable entry the block comes from. */
+  id: string
+  subjectId: string | null
+  title: string
+  minutes: number
+}
+
 export type EveningPlanInput = {
   date: string
   freeFrom: number
@@ -32,6 +41,8 @@ export type EveningPlanInput = {
   homework: Pick<DayHomework, 'subjectId' | 'title' | 'minutes'>[]
   covered: { subjectId: string | null; title: string; topic: string }[]
   backlog: Backlog
+  /** Blocks skipped on earlier days, offered a place tonight. */
+  recovered?: RecoveredBlock[]
 }
 
 export type EveningPlan = {
@@ -40,6 +51,10 @@ export type EveningPlan = {
   breakMinutes: number
   missedHomeworkMinutes: number
   breakLength: number
+  /** The recovered blocks that found room tonight, by timetable id. */
+  pulledIds: string[]
+  /** Minutes of recovered work that did not fit in the window. */
+  missedRecoveryMinutes: number
 }
 
 const REVIEW = 20
@@ -131,6 +146,7 @@ export function buildEveningPlan({
   homework,
   covered,
   backlog,
+  recovered = [],
 }: EveningPlanInput): EveningPlan {
   const breakLength = breakLengthFor({ homework, covered, backlog })
   if (freeUntil - freeFrom < SMALLEST_BLOCK)
@@ -140,6 +156,11 @@ export function buildEveningPlan({
       breakMinutes: 0,
       missedHomeworkMinutes: homework.reduce((sum, item) => sum + item.minutes, 0),
       breakLength,
+      pulledIds: [],
+      missedRecoveryMinutes: recovered.reduce(
+        (sum, item) => sum + Math.max(0, Math.round(item.minutes)),
+        0,
+      ),
     }
 
   const fixed = [...reviewBlocks(covered), ...homeworkBlocks(homework)]
@@ -188,6 +209,31 @@ export function buildEveningPlan({
     }
   })
 
+  // Work that was planned for an earlier day but not done: homework first,
+  // then what was missed, then the general catch-up. A block that no longer
+  // fits is reported, not silently dropped.
+  const pulledIds: string[] = []
+  let missedRecoveryMinutes = 0
+  for (const item of recovered) {
+    const minutes = Math.max(SMALLEST_BLOCK, Math.round(item.minutes))
+    if (at + minutes > freeUntil) {
+      missedRecoveryMinutes += minutes
+      continue
+    }
+    if (studySinceBreak >= BREAK_EVERY && at + breakLength + minutes <= freeUntil) {
+      place({
+        title: 'Break',
+        subjectId: null,
+        minutes: breakLength,
+        kind: 'break',
+      })
+      studySinceBreak = 0
+    }
+    place({ title: item.title, subjectId: item.subjectId, minutes, kind: 'study' })
+    pulledIds.push(item.id)
+    studySinceBreak += minutes
+  }
+
   // Leftover window goes to backlog, cycling through the subjects.
   const queue = [...backlog.subjects].sort((a, b) => b.weight - a.weight)
   let cursor = 0
@@ -219,7 +265,45 @@ export function buildEveningPlan({
     breakMinutes,
     missedHomeworkMinutes,
     breakLength,
+    pulledIds,
+    missedRecoveryMinutes,
   }
+}
+
+function entryInput(entry: Entry): EntryInput {
+  return {
+    subjectId: entry.subjectId,
+    title: entry.title,
+    kind: entry.kind,
+    day: entry.day,
+    startMin: entry.startMin,
+    endMin: entry.endMin,
+    room: entry.room,
+    plan: entry.plan,
+    date: entry.date,
+  }
+}
+
+/**
+ * The past days a carried or dropped block leaves, each with whatever stays.
+ * Only days touched by `leaving` appear, so untouched days are never rewritten.
+ */
+export function planWithout(
+  entries: Entry[],
+  leaving: Set<string>,
+): { date: string; entries: EntryInput[] }[] {
+  const byDate = new Map<string, EntryInput[]>()
+  const touched = new Set<string>()
+  for (const entry of entries) {
+    if (entry.plan !== 'intensive' || !entry.date) continue
+    const kept = byDate.get(entry.date) ?? []
+    if (leaving.has(entry.id)) touched.add(entry.date)
+    else kept.push(entryInput(entry))
+    byDate.set(entry.date, kept)
+  }
+  return [...touched]
+    .sort()
+    .map((date) => ({ date, entries: byDate.get(date) ?? [] }))
 }
 
 /** What is actually behind: overdue work, unread chapters and exam pressure. */

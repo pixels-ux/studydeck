@@ -18,20 +18,26 @@ function ReviewRecord({ stats }: { stats: ReviewStats }) {
   return (
     <div className="review-record" aria-label="Your review record">
       <span>
-        <strong>{stats.streak}</strong>
-        {stats.streak === 1 ? 'day in a row' : 'days in a row'}
+        {stats.streak > 0 ? (
+          <>
+            <strong>{stats.streak}</strong>{' '}
+            {stats.streak === 1 ? 'day in a row' : 'days in a row'}
+          </>
+        ) : (
+          'no streak yet'
+        )}
       </span>
       <span>
-        <strong>{stats.bestStreak}</strong>best run
+        <strong>{stats.bestStreak}</strong> best run
       </span>
       <span>
-        <strong>{stats.answeredToday}</strong>answered today
+        <strong>{stats.answeredToday}</strong> answered today
       </span>
       <span title="Cards recalled (Good or Easy) in the last 30 days">
-        <strong>{stats.recalled}%</strong>recalled in 30 days
+        <strong>{stats.recalled}%</strong> recalled in 30 days
       </span>
       <span title="Days in the last 30 with no answers, after your first review">
-        <strong>{stats.missedDays}</strong>days missed
+        <strong>{stats.missedDays}</strong> days missed
       </span>
     </div>
   )

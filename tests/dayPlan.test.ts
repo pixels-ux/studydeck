@@ -1,5 +1,10 @@
 import { expect, test } from 'bun:test'
-import { backlogOf, breakLengthFor, buildEveningPlan } from '../src/client/dayPlan'
+import {
+  backlogOf,
+  breakLengthFor,
+  buildEveningPlan,
+  planWithout,
+} from '../src/client/dayPlan'
 import { formatTimetable, parseTimetable } from '../src/client/timetableText'
 
 const day = '2026-11-23'
@@ -129,6 +134,75 @@ test('homework that does not fit is reported rather than squeezed in', () => {
   expect(plan.entries.at(-1)!.endMin).toBeLessThanOrEqual(20 * 60 + 70)
 })
 
+test('skipped blocks can be pulled into tonight, and one that does not fit is reported', () => {
+  const plan = buildEveningPlan({
+    date: day,
+    freeFrom: 17 * 60,
+    freeUntil: 17 * 60 + 70,
+    homework: [],
+    covered: [],
+    backlog,
+    recovered: [
+      { id: 'a', subjectId: 's1', title: 'Review · Science: Refraction', minutes: 40 },
+      { id: 'b', subjectId: 's2', title: 'Review · Mathematics: Circles', minutes: 60 },
+    ],
+  })
+  expect(plan.pulledIds).toEqual(['a'])
+  expect(plan.missedRecoveryMinutes).toBe(60)
+  expect(plan.entries[0]!.title).toBe('Review · Science: Refraction')
+  expect(plan.studyMinutes).toBe(40)
+  expect(plan.entries.at(-1)!.endMin).toBeLessThanOrEqual(17 * 60 + 70)
+  expect(plan.entries.every((entry) => entry.date === day)).toBe(true)
+})
+
+test('a recovered block still yields to homework with a deadline', () => {
+  const plan = buildEveningPlan({
+    date: day,
+    freeFrom: 17 * 60,
+    freeUntil: 17 * 60 + 60,
+    homework: [{ subjectId: 's1', title: 'Algebra problems', minutes: 45 }],
+    covered: [],
+    backlog,
+    recovered: [
+      { id: 'a', subjectId: 's2', title: 'Review · Science: Refraction', minutes: 40 },
+    ],
+  })
+  expect(plan.pulledIds).toEqual([])
+  expect(plan.missedRecoveryMinutes).toBe(40)
+  expect(plan.entries[0]!.title).toBe('Algebra problems')
+})
+
+test('carried and dropped blocks leave their old day, and neighbours stay', () => {
+  const entry = (id: string, date: string, title: string) => ({
+    id,
+    subjectId: null,
+    title,
+    kind: 'study' as const,
+    day: 2,
+    startMin: 1020,
+    endMin: 1040,
+    room: '',
+    plan: 'intensive' as const,
+    date,
+  })
+  const days = planWithout(
+    [
+      entry('a', '2026-11-25', 'Refraction'),
+      entry('b', '2026-11-25', 'Human eye'),
+      entry('c', '2026-11-24', 'Light'),
+      entry('d', '2026-11-24', 'Sound'),
+      entry('e', '2026-11-23', 'Echoes'),
+    ],
+    new Set(['a', 'c']),
+  )
+  // The untouched day is not rewritten, so its blocks are not churned.
+  expect(days.map((day) => day.date)).toEqual(['2026-11-24', '2026-11-25'])
+  expect(days[0]!.entries.map((item) => item.title)).toEqual(['Sound'])
+  expect(days[1]!.entries.map((item) => item.title)).toEqual(['Human eye'])
+  expect(days[1]!.entries[0]!.date).toBe('2026-11-25')
+  expect('id' in days[1]!.entries[0]!).toBe(false)
+})
+
 test('an empty window produces no plan instead of a midnight session', () => {
   const plan = buildEveningPlan({
     date: day,
@@ -140,6 +214,8 @@ test('an empty window produces no plan instead of a midnight session', () => {
   })
   expect(plan.entries).toEqual([])
   expect(plan.missedHomeworkMinutes).toBe(40)
+  expect(plan.missedRecoveryMinutes).toBe(0)
+  expect(plan.pulledIds).toEqual([])
 })
 
 test('backlog weighs overdue work, unread chapters and a near exam', () => {

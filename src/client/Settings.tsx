@@ -113,6 +113,12 @@ export default function Settings({
           like, or open class setup to import a backup, change your timetable or
           empty a notebook.
         </p>
+        <p className="fineprint">
+          Studydeck also writes a rolling copy on its own — before anything can
+          be emptied, and now and then while you work — into a{' '}
+          <code>backups</code> folder beside the data file, keeping the newest
+          seven. Any of them loads back with Import a backup in class setup.
+        </p>
         <div className="form-actions">
           <a className="btn ghost" href="/api/export" download>
             Download a backup

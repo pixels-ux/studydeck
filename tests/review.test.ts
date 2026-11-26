@@ -10,7 +10,13 @@ import { addDays, nextGap, nextReview } from '../src/shared/review.ts'
 import { openDatabase } from '../src/node/sqlite'
 import { createApp } from '../src/server/app'
 import { scopedOwner } from '../src/server/db'
-import { gradeCard, reviewDecks, reviewQueue, reviewStats } from '../src/server/review'
+import {
+  gradeCard,
+  reviewDecks,
+  reviewQueue,
+  reviewStats,
+  undoLastReview,
+} from '../src/server/review'
 import type { SqlDatabase } from '../src/server/sql'
 
 const deck = [
@@ -417,4 +423,136 @@ test('deleting a deck deletes its history', async () => {
     summary: ReviewSummary
   }
   expect(queue.summary.total).toBe(0)
+})
+
+/** A workspace with one two-card deck, and the note it lives in. */
+async function withDeck(title = 'Flashcards · Light') {
+  const { db, app, owner } = await seeded()
+  const saved = await call(app, '/api/notes', 'POST', {
+    subjectId: null,
+    title,
+    body: deck,
+  })
+  const note = ((await saved.json()) as { note: { id: string } }).note
+  return { db, app, owner, note }
+}
+
+test('the last answer can be taken back, and the card is new again', async () => {
+  const { app, note } = await withDeck()
+
+  // Nothing has been answered, so there is nothing to take back.
+  expect((await call(app, '/api/review/undo', 'POST')).status).toBe(409)
+
+  const answered = await call(app, '/api/review', 'POST', {
+    noteId: note.id,
+    cardKey: cardKey('What is light?'),
+    result: 'good',
+  })
+  expect(answered.status).toBe(200)
+
+  const waiting = (await (await call(app, '/api/review')).json()) as {
+    cards: ReviewCard[]
+    summary: ReviewSummary
+    undo: boolean
+  }
+  expect(waiting.undo).toBe(true)
+  expect(waiting.summary.fresh).toBe(1)
+
+  const undone = await call(app, '/api/review/undo', 'POST')
+  expect(undone.status).toBe(200)
+  const card = ((await undone.json()) as { card: ReviewCard }).card
+  // It was a new card, so it is new again rather than scheduled.
+  expect(card).toMatchObject({
+    fresh: true,
+    intervalDays: 0,
+    ease: 0,
+    lapses: 0,
+    lastResult: '',
+    reviewedAt: 0,
+  })
+  expect(card.dueDate).toBe(new Date().toISOString().slice(0, 10))
+
+  const after = (await (await call(app, '/api/review')).json()) as {
+    cards: ReviewCard[]
+    summary: ReviewSummary
+    undo: boolean
+  }
+  expect(after.summary).toMatchObject({ due: 0, fresh: 2, total: 2 })
+  expect(after.undo).toBe(false)
+
+  // The answer left the record, so the streak and the counts lost it too.
+  const data = (await (await call(app, '/api/data')).json()) as WorkspaceData
+  expect(data.reviewStats).toMatchObject({
+    streak: 0,
+    answeredToday: 0,
+    answers: 0,
+    total: 0,
+  })
+
+  // There is only ever one step back.
+  expect((await call(app, '/api/review/undo', 'POST')).status).toBe(409)
+})
+
+test('undo puts a card back on the day, ease and misses it had', async () => {
+  const { db, app, owner, note } = await withDeck()
+  const key = cardKey('What is light?')
+
+  const first = await gradeCard(db, owner, note.id, key, 'good', '2026-11-24')
+  expect(first.ok).toBe(true)
+  const second = await gradeCard(db, owner, note.id, key, 'hard', '2026-11-26')
+  expect(second.ok).toBe(true)
+  if (!second.ok) return
+  expect(second.card).toMatchObject({ dueDate: '2026-11-27', ease: 235 })
+
+  const undone = await undoLastReview(db, owner, '2026-11-26')
+  expect(undone.ok).toBe(true)
+  if (!undone.ok) return
+  expect(undone.card).toMatchObject({
+    dueDate: '2026-11-25',
+    intervalDays: 1,
+    ease: 250,
+    lapses: 0,
+    lastResult: 'good',
+    fresh: false,
+  })
+  // The first answer is still in the history; only the second went.
+  expect((await reviewStats(db, owner, '2026-11-26')).total).toBe(1)
+
+  // An answer that is no longer the last one cannot be taken back.
+  await gradeCard(db, owner, note.id, key, 'easy', '2026-11-26')
+  await db
+    .prepare(
+      'INSERT INTO review_log (owner_sub, note_id, card_key, result, day, reviewed_at) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .bind(owner, note.id, key, 'good', '2026-11-26', Date.now() + 5_000)
+    .run()
+  const stale = await undoLastReview(db, owner, '2026-11-26')
+  expect(stale.ok).toBe(false)
+  if (!stale.ok) expect(stale.reason).toBe('stale')
+})
+
+test('the undo button only follows the deck on screen', async () => {
+  const { app, note } = await withDeck()
+  const other = (await (
+    await call(app, '/api/notes', 'POST', {
+      subjectId: null,
+      title: 'Flashcards · Sound',
+      body: ['Q: How does sound travel?', 'A: As a wave through a medium.'].join('\n'),
+    })
+  ).json()) as { note: { id: string } }
+
+  await call(app, '/api/review', 'POST', {
+    noteId: note.id,
+    cardKey: cardKey('What is light?'),
+    result: 'good',
+  })
+
+  const same = (await (
+    await call(app, `/api/review?deck=${note.id}`)
+  ).json()) as { undo: boolean }
+  const elsewhere = (await (
+    await call(app, `/api/review?deck=${other.note.id}`)
+  ).json()) as { undo: boolean }
+  expect(same.undo).toBe(true)
+  expect(elsewhere.undo).toBe(false)
 })

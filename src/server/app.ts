@@ -47,7 +47,14 @@ import {
   type SemanticIndex,
 } from './library.ts'
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers.ts'
-import { gradeCard, reviewDecks, reviewQueue, reviewStats } from './review.ts'
+import {
+  gradeCard,
+  reviewDecks,
+  reviewQueue,
+  reviewStats,
+  undoAvailable,
+  undoLastReview,
+} from './review.ts'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
   BASE_OWNER,
@@ -2247,11 +2254,18 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
       .bind(id, owner)
       .first()
     if (!removed) return c.json({ error: 'Note not found.' }, 404)
-    // A deck's review history goes when the deck does.
-    await db
-      .prepare('DELETE FROM card_reviews WHERE note_id = ? AND owner_sub = ?')
-      .bind(id, owner)
-      .run()
+    // A deck's review history goes when the deck does, including the answer
+    // the Review screen could still have taken back.
+    await db.batch([
+      db
+        .prepare('DELETE FROM card_reviews WHERE note_id = ? AND owner_sub = ?')
+        .bind(id, owner),
+      db
+        .prepare(
+          'DELETE FROM review_undo WHERE owner_sub = ? AND note_id = ?',
+        )
+        .bind(owner, id),
+    ])
     return c.json({ ok: true })
   })
 
@@ -3107,7 +3121,10 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const limit = whole(c.req.query('limit'), 1, 100) ?? 40
     const deck = identifier(c.req.query('deck')) ?? undefined
     const today = new Date().toISOString().slice(0, 10)
-    return c.json(await reviewQueue(db, c.get('owner'), today, limit, deck))
+    const owner = c.get('owner')
+    const queue = await reviewQueue(db, owner, today, limit, deck)
+    // The Undo button only appears when there is still an answer to take back.
+    return c.json({ ...queue, undo: await undoAvailable(db, owner, deck) })
   })
 
   /** Every deck and the counts that feed today's queue, for the All decks view. */
@@ -3146,6 +3163,35 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
         404,
       )
     return c.json({ card: graded.card })
+  })
+
+  /** Takes back the answer just given, so a wrong key is not permanent. */
+  app.post('/api/review/undo', async (c) => {
+    const undone = await undoLastReview(
+      db,
+      c.get('owner'),
+      new Date().toISOString().slice(0, 10),
+    )
+    if (undone.ok) return c.json({ card: undone.card })
+    if (undone.reason === 'nothing' || undone.reason === 'stale')
+      return c.json(
+        {
+          error:
+            undone.reason === 'nothing'
+              ? 'There is no answer to take back.'
+              : 'You have answered another card since. Only the last answer can be taken back.',
+        },
+        409,
+      )
+    return c.json(
+      {
+        error:
+          undone.reason === 'note'
+            ? 'That flashcard deck is no longer here.'
+            : 'That card is no longer in its deck.',
+      },
+      404,
+    )
   })
 
   app.get('/api/ai/settings', async (c) => {

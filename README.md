@@ -105,6 +105,12 @@ to start over. `DATABASE_PATH` points somewhere else if you prefer:
 DATABASE_PATH=~/Documents/studydeck.db bun run dev
 ```
 
+Studydeck also keeps copies of its own. Before anything can be emptied — a
+notebook deleted, a backup imported, class setup run again — and every half hour
+or so while you edit, it writes the same JSON as **Download a backup** into a
+`backups/` folder beside the data file, and keeps the newest seven. They never
+hold an API key, and any of them loads back with **Import a backup**.
+
 The in-app **Download a backup** button in Class setup writes the same content as
 JSON — every notebook, day check-ins and the library's questions and answers
 included — and **Delete everything** empties the current notebook without
@@ -179,7 +185,8 @@ instead of saving an empty item. Then:
   of that subject in one set, each item given a share of the prompt so a whole
   topic is represented.
 - **Review** — those flashcard decks come back on their own schedule, a few
-  cards a day, with the next interval shown on every answer. No AI is used to
+  cards a day, with the next interval shown on every answer, an undo for a
+  wrong key, and every deck listable and reviewable on its own. No AI is used to
   revise.
 
 Material is cut into paragraphs, and a question sends the paragraphs that share
@@ -208,7 +215,10 @@ you have never seen, then the ones you missed, ordered by how long they have
 waited.
 
 Read the question, answer it out loud, press **Show answer**, then pick one of
-four answers. Space or Enter reveals; `1` to `4` answer.
+four answers. Space or Enter reveals; `1` to `4` answer. Picked the wrong one?
+**Undo last answer**, above the queue, puts the card back on the date, ease and
+misses it had and removes the answer from the record, so a key pressed by
+mistake costs nothing. Only the most recent answer can be taken back.
 
 | Answer | What it means | Comes back |
 | --- | --- | --- |

@@ -5,6 +5,7 @@ import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { createApp } from '../server/app.ts'
 import { resolveProvider } from '../server/providers.ts'
+import { automaticBackups, BACKUP_KEEP, backupFolder } from './backups.ts'
 import { readAiEnv } from './env.ts'
 import { sendResponse, toRequest } from './http.ts'
 import { openDatabase } from './sqlite.ts'
@@ -79,12 +80,39 @@ async function serveAsset(request: Request): Promise<Response> {
 
 const app = createApp(openDatabase(databasePath), readAiEnv())
 
-const server = createServer(async (req, res) => {
+/**
+ * Automatic copies read from the app's own export route, so they are exactly
+ * the file Import a backup reads. The app itself never touches the disk.
+ */
+const readBackup = async (): Promise<string | null> => {
   try {
+    const response = await app.fetch(new Request('http://localhost/api/export'))
+    return response.ok ? await response.text() : null
+  } catch (error) {
+    console.error('Could not read the workspace for a backup.', error)
+    return null
+  }
+}
+const backups =
+  databasePath === ':memory:'
+    ? null
+    : automaticBackups(databasePath, readBackup)
+void backups?.startup()
+
+const server = createServer(async (req, res) => {
+  // Nothing outside the API can change the data, so only it is backed up.
+  const apiPath = req.url?.startsWith('/api/')
+    ? (req.url.split('?')[0] ?? req.url)
+    : ''
+  const method = req.method ?? 'GET'
+  try {
+    // A request that can empty something waits for its copy first.
+    if (backups && apiPath) await backups.before(method, apiPath)
     const request = toRequest(req)
-    const response = req.url?.startsWith('/api/')
+    const response = apiPath
       ? await app.fetch(request)
       : await serveAsset(request)
+    if (backups && apiPath) backups.after(method, apiPath, response.ok)
     await sendResponse(response, res)
   } catch (error) {
     console.error('Request failed', error)
@@ -96,6 +124,10 @@ const server = createServer(async (req, res) => {
 server.listen(port, host, () => {
   console.log(`Studydeck on http://localhost:${port}`)
   console.log(`Your data file: ${resolve(databasePath)}`)
+  if (backups)
+    console.log(
+      `Automatic backups: ${backupFolder(databasePath)} (newest ${BACKUP_KEEP})`,
+    )
   const provider = resolveProvider(readAiEnv())
   if (provider)
     console.log(`AI desk: ${provider.label} (${provider.model})`)

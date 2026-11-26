@@ -152,6 +152,23 @@ const schema = [
   )`,
   `CREATE INDEX IF NOT EXISTS review_log_day ON review_log(owner_sub, day)`,
   `CREATE INDEX IF NOT EXISTS review_log_at ON review_log(owner_sub, reviewed_at)`,
+  // The one answer the Review screen can take back, with what the card looked
+  // like before it, so an undo restores the schedule instead of guessing.
+  `CREATE TABLE IF NOT EXISTS review_undo (
+    owner_sub TEXT PRIMARY KEY,
+    note_id TEXT NOT NULL,
+    card_key TEXT NOT NULL,
+    result TEXT NOT NULL,
+    day TEXT NOT NULL,
+    reviewed_at INTEGER NOT NULL,
+    had_before INTEGER NOT NULL DEFAULT 0,
+    due_date TEXT NOT NULL DEFAULT '',
+    interval_days INTEGER NOT NULL DEFAULT 0,
+    ease INTEGER NOT NULL DEFAULT 250,
+    lapses INTEGER NOT NULL DEFAULT 0,
+    last_result TEXT NOT NULL DEFAULT '',
+    prev_reviewed_at INTEGER NOT NULL DEFAULT 0
+  )`,
   `CREATE TABLE IF NOT EXISTS notebooks (
     id TEXT PRIMARY KEY,
     owner_sub TEXT NOT NULL,
@@ -186,6 +203,7 @@ export const NOTEBOOK_TABLES = [
   'study_notes',
   'card_reviews',
   'review_log',
+  'review_undo',
   'ai_actions',
   'sources',
   'library_messages',

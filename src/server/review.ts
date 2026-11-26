@@ -383,6 +383,42 @@ export async function gradeCard(
   const reviewedAt = Date.now()
 
   await db.batch([
+    // Keep the answer and what the card looked like before it, so the screen
+    // can offer one step back instead of a schedule quietly bent by a typo.
+    db
+      .prepare(
+        `INSERT INTO review_undo (owner_sub, note_id, card_key, result, day, reviewed_at,
+           had_before, due_date, interval_days, ease, lapses, last_result, prev_reviewed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(owner_sub) DO UPDATE SET
+           note_id = excluded.note_id,
+           card_key = excluded.card_key,
+           result = excluded.result,
+           day = excluded.day,
+           reviewed_at = excluded.reviewed_at,
+           had_before = excluded.had_before,
+           due_date = excluded.due_date,
+           interval_days = excluded.interval_days,
+           ease = excluded.ease,
+           lapses = excluded.lapses,
+           last_result = excluded.last_result,
+           prev_reviewed_at = excluded.prev_reviewed_at`,
+      )
+      .bind(
+        owner,
+        noteId,
+        key,
+        result,
+        today,
+        reviewedAt,
+        previous ? 1 : 0,
+        previous?.due_date ?? '',
+        previous?.interval_days ?? 0,
+        previous?.ease ?? 0,
+        previous?.lapses ?? 0,
+        previous?.last_result ?? '',
+        previous?.reviewed_at ?? 0,
+      ),
     db
       .prepare(
         `INSERT INTO card_reviews (owner_sub, note_id, card_key, due_date, interval_days, ease, lapses, last_result, reviewed_at)
@@ -434,3 +470,162 @@ export async function gradeCard(
     },
   }
 }
+
+type UndoRow = {
+  note_id: string
+  card_key: string
+  result: string
+  day: string
+  reviewed_at: number
+  had_before: number
+  due_date: string
+  interval_days: number
+  ease: number
+  lapses: number
+  last_result: string
+  prev_reviewed_at: number
+}
+
+/**
+ * Whether the screen should offer to take the last answer back: there is a
+ * saved answer, it is still the newest one in the history, and — when a deck
+ * is open — it belongs to that deck rather than another one.
+ */
+export async function undoAvailable(
+  db: SqlDatabase,
+  owner: string,
+  noteId?: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT u.note_id AS note_id, u.reviewed_at AS reviewed_at,
+         (SELECT MAX(reviewed_at) FROM review_log WHERE owner_sub = u.owner_sub) AS latest
+       FROM review_undo u WHERE u.owner_sub = ?`,
+    )
+    .bind(owner)
+    .first<{ note_id: string; reviewed_at: number; latest: number | null }>()
+  if (!row) return false
+  if (noteId && row.note_id !== noteId) return false
+  return row.latest === row.reviewed_at
+}
+
+export type UndoResult =
+  | { ok: true; card: ReviewCard }
+  | { ok: false; reason: 'nothing' | 'stale' | 'note' | 'card' }
+
+/**
+ * Takes back the answer given last: the card returns to the date, ease and
+ * misses it had, and the answer leaves the history, so the streak, the recall
+ * share and the queue all read as if it never happened.
+ */
+export async function undoLastReview(
+  db: SqlDatabase,
+  owner: string,
+  today: string,
+): Promise<UndoResult> {
+  const undo = await db
+    .prepare(
+      `SELECT note_id, card_key, result, day, reviewed_at, had_before, due_date,
+         interval_days, ease, lapses, last_result, prev_reviewed_at
+       FROM review_undo WHERE owner_sub = ?`,
+    )
+    .bind(owner)
+    .first<UndoRow>()
+  if (!undo) return { ok: false, reason: 'nothing' }
+
+  const clear = () =>
+    db.prepare('DELETE FROM review_undo WHERE owner_sub = ?').bind(owner).run()
+
+  const latest = await db
+    .prepare('SELECT MAX(reviewed_at) AS latest FROM review_log WHERE owner_sub = ?')
+    .bind(owner)
+    .first<{ latest: number | null }>()
+  // Something was answered after this card, so the step back would be a lie.
+  if ((latest?.latest ?? 0) !== undo.reviewed_at) {
+    await clear()
+    return { ok: false, reason: 'stale' }
+  }
+
+  const note = await db
+    .prepare(
+      'SELECT id, subject_id, title, body FROM study_notes WHERE id = ? AND owner_sub = ?',
+    )
+    .bind(undo.note_id, owner)
+    .first<CardNoteRow>()
+  if (!note || revisionKindOf(note.title) !== 'cards') {
+    await clear()
+    return { ok: false, reason: 'note' }
+  }
+  const card = parseCards(note.body).find(
+    (item) => cardKey(item.question) === undo.card_key,
+  )
+  if (!card) {
+    await clear()
+    return { ok: false, reason: 'card' }
+  }
+
+  const statements = [
+    // One row only: two quick answers can share a millisecond, and taking back
+    // the last one must not erase the one before it as well.
+    db
+      .prepare(
+        `DELETE FROM review_log WHERE rowid IN (
+           SELECT rowid FROM review_log
+           WHERE owner_sub = ? AND note_id = ? AND card_key = ? AND reviewed_at = ?
+           ORDER BY rowid DESC LIMIT 1)`,
+      )
+      .bind(owner, undo.note_id, undo.card_key, undo.reviewed_at),
+    db.prepare('DELETE FROM review_undo WHERE owner_sub = ?').bind(owner),
+  ]
+  if (undo.had_before)
+    statements.push(
+      db
+        .prepare(
+          `UPDATE card_reviews SET due_date = ?, interval_days = ?, ease = ?, lapses = ?,
+             last_result = ?, reviewed_at = ?
+           WHERE owner_sub = ? AND note_id = ? AND card_key = ?`,
+        )
+        .bind(
+          undo.due_date,
+          undo.interval_days,
+          undo.ease,
+          undo.lapses,
+          undo.last_result,
+          undo.prev_reviewed_at,
+          owner,
+          undo.note_id,
+          undo.card_key,
+        ),
+    )
+  else
+    // The card was new, so it becomes new again rather than scheduled.
+    statements.push(
+      db
+        .prepare(
+          'DELETE FROM card_reviews WHERE owner_sub = ? AND note_id = ? AND card_key = ?',
+        )
+        .bind(owner, undo.note_id, undo.card_key),
+    )
+  await db.batch(statements)
+
+  const before = undo.had_before === 1
+  return {
+    ok: true,
+    card: {
+      noteId: undo.note_id,
+      noteTitle: note.title,
+      subjectId: note.subject_id,
+      key: undo.card_key,
+      question: card.question,
+      answer: card.answer,
+      dueDate: before ? undo.due_date : today,
+      intervalDays: before ? undo.interval_days : 0,
+      ease: before ? undo.ease : 0,
+      lapses: before ? undo.lapses : 0,
+      lastResult: before ? asResult(undo.last_result) : '',
+      reviewedAt: before ? undo.prev_reviewed_at : 0,
+      fresh: !before,
+    },
+  }
+}
+

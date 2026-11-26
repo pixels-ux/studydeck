@@ -12,7 +12,7 @@ import { fmtDate } from './dates'
 import type { Tab } from './Shell'
 import { useWorkspace } from './workspace'
 
-type Queue = { cards: ReviewCard[]; summary: ReviewSummary }
+type Queue = { cards: ReviewCard[]; summary: ReviewSummary; undo?: boolean }
 
 /** The streak and recall record the answers add up to. */
 function ReviewRecord({ stats }: { stats: ReviewStats }) {
@@ -76,6 +76,7 @@ export default function Review({
   const [deckId, setDeckId] = useState<string | null>(null)
   const [decks, setDecks] = useState<ReviewDeck[] | null>(null)
   const [decksError, setDecksError] = useState('')
+  const [canUndo, setCanUndo] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -84,6 +85,7 @@ export default function Review({
       const query = deckId ? `?deck=${encodeURIComponent(deckId)}` : ''
       const next = await api<Queue>(`/api/review${query}`)
       setQueue(next)
+      setCanUndo(next.undo === true)
       setIndex(0)
       setRevealed(false)
     } catch (e) {
@@ -132,6 +134,7 @@ export default function Review({
         // Keeps the rail badge, the tab title and the record in step.
         void refresh()
         setDecks(null)
+        setCanUndo(true)
         setIndex(index + 1)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not save that answer.')
@@ -141,6 +144,27 @@ export default function Review({
     },
     [busy, cards, index, refresh],
   )
+
+  /** Takes the answer just given back, schedule and record included. */
+  const undoAnswer = useCallback(async () => {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await api<{ card: ReviewCard }>('/api/review/undo', { method: 'POST' })
+      setCanUndo(false)
+      setDecks(null)
+      void refresh()
+      // The card is due again, so the queue is read rather than patched.
+      await load()
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Could not take that answer back.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, load, refresh])
 
   useEffect(() => {
     if (!card) return
@@ -186,6 +210,18 @@ export default function Review({
       '')
     : ''
 
+  const undoButton = canUndo ? (
+    <button
+      type="button"
+      className="btn ghost small"
+      onClick={() => void undoAnswer()}
+      disabled={busy}
+      title="Put the last card back on the date it had"
+    >
+      Undo last answer
+    </button>
+  ) : null
+
   // Where the daily queue pulls from: the decks, and what each one owes.
   const dueToday = (queue?.summary.due ?? 0) + (queue?.summary.fresh ?? 0)
   const deckDue = (decks ?? []).reduce(
@@ -201,6 +237,7 @@ export default function Review({
         {deckName ? deckName.replace(/^Flashcards · /, '') : 'This deck'}
         {queue ? ` · ${dueToday} due today` : ''}
       </span>
+      {undoButton}
     </div>
   ) : (
     <div className="week-toolbar">
@@ -229,6 +266,7 @@ export default function Review({
             ? `${queue.summary.total} ${queue.summary.total === 1 ? 'card' : 'cards'} in all · ${dueToday} due today`
             : ''}
       </span>
+      {undoButton}
     </div>
   )
 
@@ -528,7 +566,8 @@ export default function Review({
             </div>
             <p className="fineprint">
               Be honest: a card you had to dig for is not “Good”. Each answer is
-              saved for the next day it is due.
+              saved for the next day it is due, and Undo last answer above takes
+              back a wrong key.
             </p>
           </>
         ) : (

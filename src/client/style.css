@@ -3471,6 +3471,30 @@ a.btn {
   display: block;
 }
 
+/* The deck's name is the button that reviews just that deck. */
+.deck-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.deck-open:hover .deck-title {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.deck-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
 .deck-subject {
   color: var(--muted);
   font-size: 10.5px;

@@ -3101,11 +3101,13 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   /** Which service answers, and where its key comes from. Never the key. */
   /* Review: the flashcards the library made, scheduled over days. */
 
-  /** Today's cards, the ones due longest first, then cards that are new. */
+  /** Today's cards, the ones due longest first, then cards that are new. Pass
+   *  a deck id to review just that deck. */
   app.get('/api/review', async (c) => {
     const limit = whole(c.req.query('limit'), 1, 100) ?? 40
+    const deck = identifier(c.req.query('deck')) ?? undefined
     const today = new Date().toISOString().slice(0, 10)
-    return c.json(await reviewQueue(db, c.get('owner'), today, limit))
+    return c.json(await reviewQueue(db, c.get('owner'), today, limit, deck))
   })
 
   /** Every deck and the counts that feed today's queue, for the All decks view. */

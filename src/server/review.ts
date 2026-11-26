@@ -52,17 +52,30 @@ function asResult(value: string): ReviewResult | '' {
     : ''
 }
 
+type ScannedCard = {
+  noteId: string
+  noteTitle: string
+  subjectId: string | null
+  key: string
+  question: string
+  answer: string
+  /** The saved schedule for this card, or null when it was never answered. */
+  state: ReviewRow | null
+}
+
+type ScannedDeck = {
+  noteId: string
+  noteTitle: string
+  subjectId: string | null
+  /** The deck's distinct cards, in the order the deck lists them. */
+  cards: ScannedCard[]
+}
+
 /**
- * Every card in the notebook's decks, split into what is due today and what is
- * new. Whole days only: a card answered "again" is due tomorrow, which keeps
- * the day's queue finite.
+ * Every deck and its cards, read in one pass. Both the queue and the All decks
+ * view count from this, so the two can never disagree about a deck.
  */
-export async function reviewQueue(
-  db: SqlDatabase,
-  owner: string,
-  today: string,
-  limit = 40,
-): Promise<{ cards: ReviewCard[]; summary: ReviewSummary }> {
+async function scanDecks(db: SqlDatabase, owner: string): Promise<ScannedDeck[]> {
   const [notes, states] = await Promise.all([
     cardNotes(db, owner),
     cardStates(db, owner),
@@ -72,56 +85,124 @@ export async function reviewQueue(
   for (const row of states.results)
     known.set(`${row.note_id}::${row.card_key}`, row)
 
-  const due: ReviewCard[] = []
-  const fresh: ReviewCard[] = []
-  let total = 0
-  let nextDue = ''
-
+  const decks: ScannedDeck[] = []
   for (const note of notes.results) {
     if (revisionKindOf(note.title) !== 'cards') continue
     const seen = new Set<string>()
+    const cards: ScannedCard[] = []
     for (const card of parseCards(note.body)) {
       const key = cardKey(card.question)
       if (seen.has(key)) continue
       seen.add(key)
-      total += 1
-      const state = known.get(`${note.id}::${key}`)
-      const base = {
+      cards.push({
         noteId: note.id,
         noteTitle: note.title,
         subjectId: note.subject_id,
         key,
         question: card.question,
         answer: card.answer,
-      }
-      if (!state) {
-        fresh.push({
-          ...base,
-          dueDate: today,
-          intervalDays: 0,
-          ease: 0,
-          lapses: 0,
-          lastResult: '',
-          reviewedAt: 0,
-          fresh: true,
-        })
-        continue
-      }
-      if (state.due_date <= today) {
-        due.push({
-          ...base,
-          dueDate: state.due_date,
-          intervalDays: state.interval_days,
-          ease: state.ease,
-          lapses: state.lapses,
-          lastResult: asResult(state.last_result),
-          reviewedAt: state.reviewed_at,
-          fresh: false,
-        })
-      } else if (!nextDue || state.due_date < nextDue) {
-        nextDue = state.due_date
-      }
+        state: known.get(`${note.id}::${key}`) ?? null,
+      })
     }
+    // A deck with no readable cards feeds nothing into the queue.
+    if (!cards.length) continue
+    decks.push({
+      noteId: note.id,
+      noteTitle: note.title,
+      subjectId: note.subject_id,
+      cards,
+    })
+  }
+  return decks
+}
+
+type DeckCounts = {
+  /** Answered cards whose due date has arrived. */
+  due: ReviewCard[]
+  /** Cards never answered, which the queue hands out as due. */
+  fresh: ReviewCard[]
+  /** Every distinct card in the deck. */
+  total: number
+  /** The first future day one of its cards comes back, or "". */
+  nextDue: string
+}
+
+/** Splits one deck's cards the way the daily queue does. */
+function deckCounts(deck: ScannedDeck, today: string): DeckCounts {
+  const due: ReviewCard[] = []
+  const fresh: ReviewCard[] = []
+  let nextDue = ''
+
+  for (const card of deck.cards) {
+    const base = {
+      noteId: card.noteId,
+      noteTitle: card.noteTitle,
+      subjectId: card.subjectId,
+      key: card.key,
+      question: card.question,
+      answer: card.answer,
+    }
+    const state = card.state
+    if (!state) {
+      fresh.push({
+        ...base,
+        dueDate: today,
+        intervalDays: 0,
+        ease: 0,
+        lapses: 0,
+        lastResult: '',
+        reviewedAt: 0,
+        fresh: true,
+      })
+      continue
+    }
+    if (state.due_date <= today) {
+      due.push({
+        ...base,
+        dueDate: state.due_date,
+        intervalDays: state.interval_days,
+        ease: state.ease,
+        lapses: state.lapses,
+        lastResult: asResult(state.last_result),
+        reviewedAt: state.reviewed_at,
+        fresh: false,
+      })
+    } else if (!nextDue || state.due_date < nextDue) {
+      nextDue = state.due_date
+    }
+  }
+
+  return { due, fresh, total: deck.cards.length, nextDue }
+}
+
+/**
+ * Every card in the notebook's decks, split into what is due today and what is
+ * new. Whole days only: a card answered "again" is due tomorrow, which keeps
+ * the day's queue finite. An optional deck narrows the queue to that one deck.
+ */
+export async function reviewQueue(
+  db: SqlDatabase,
+  owner: string,
+  today: string,
+  limit = 40,
+  noteId?: string,
+): Promise<{ cards: ReviewCard[]; summary: ReviewSummary }> {
+  const decks = (await scanDecks(db, owner)).filter(
+    (deck) => !noteId || deck.noteId === noteId,
+  )
+
+  const due: ReviewCard[] = []
+  const fresh: ReviewCard[] = []
+  let total = 0
+  let nextDue = ''
+
+  for (const deck of decks) {
+    const counts = deckCounts(deck, today)
+    due.push(...counts.due)
+    fresh.push(...counts.fresh)
+    total += counts.total
+    if (counts.nextDue && (!nextDue || counts.nextDue < nextDue))
+      nextDue = counts.nextDue
   }
 
   // Cards due longest come first; a brand new deck follows in its own order.
@@ -153,48 +234,18 @@ export async function reviewDecks(
   owner: string,
   today: string,
 ): Promise<ReviewDeck[]> {
-  const [notes, states] = await Promise.all([
-    cardNotes(db, owner),
-    cardStates(db, owner),
-  ])
-
-  const known = new Map<string, ReviewRow>()
-  for (const row of states.results)
-    known.set(`${row.note_id}::${row.card_key}`, row)
-
-  const decks: ReviewDeck[] = []
-  for (const note of notes.results) {
-    if (revisionKindOf(note.title) !== 'cards') continue
-    const seen = new Set<string>()
-    let total = 0
-    let due = 0
-    let fresh = 0
-    let nextDue = ''
-    for (const card of parseCards(note.body)) {
-      const key = cardKey(card.question)
-      if (seen.has(key)) continue
-      seen.add(key)
-      total += 1
-      const state = known.get(`${note.id}::${key}`)
-      if (!state) {
-        fresh += 1
-        continue
-      }
-      if (state.due_date <= today) due += 1
-      else if (!nextDue || state.due_date < nextDue) nextDue = state.due_date
+  const decks = (await scanDecks(db, owner)).map((deck) => {
+    const counts = deckCounts(deck, today)
+    return {
+      noteId: deck.noteId,
+      noteTitle: deck.noteTitle,
+      subjectId: deck.subjectId,
+      due: counts.due.length,
+      fresh: counts.fresh.length,
+      total: counts.total,
+      nextDue: counts.nextDue,
     }
-    // A deck with no readable cards feeds nothing into the queue.
-    if (!total) continue
-    decks.push({
-      noteId: note.id,
-      noteTitle: note.title,
-      subjectId: note.subject_id,
-      due,
-      fresh,
-      total,
-      nextDue,
-    })
-  }
+  })
 
   decks.sort(
     (a, b) =>

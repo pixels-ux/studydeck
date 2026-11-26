@@ -10,7 +10,7 @@ import { addDays, nextGap, nextReview } from '../src/shared/review.ts'
 import { openDatabase } from '../src/node/sqlite'
 import { createApp } from '../src/server/app'
 import { scopedOwner } from '../src/server/db'
-import { reviewStats } from '../src/server/review'
+import { gradeCard, reviewDecks, reviewQueue, reviewStats } from '../src/server/review'
 import type { SqlDatabase } from '../src/server/sql'
 
 const deck = [
@@ -310,6 +310,92 @@ test('every deck is listed with its due and total card counts', async () => {
   expect(queue.summary.due + queue.summary.fresh).toBe(
     after.decks.reduce((sum, item) => sum + item.due + item.fresh, 0),
   )
+})
+
+test('one deck can be reviewed on its own, counted the same way as the list', async () => {
+  const { db, app, owner } = await seeded()
+  const made = async (title: string, body: string) => {
+    const saved = await call(app, '/api/notes', 'POST', {
+      subjectId: null,
+      title,
+      body,
+    })
+    return ((await saved.json()) as { note: { id: string } }).note
+  }
+
+  const light = await made('Flashcards · Light', deck)
+  const sound = await made(
+    'Flashcards · Sound',
+    ['Q: How does sound travel?', 'A: As a wave through a medium.'].join('\n'),
+  )
+
+  // One card of Light was answered two days ago, so it is waiting again.
+  const today = '2026-11-26'
+  const answered = await gradeCard(
+    db,
+    owner,
+    light.id,
+    cardKey('What is light?'),
+    'good',
+    '2026-11-24',
+  )
+  expect(answered.ok).toBe(true)
+
+  const all = await reviewQueue(db, owner, today)
+  expect(all.summary).toEqual({
+    due: 1,
+    fresh: 2,
+    total: 3,
+    nextDue: '',
+  })
+
+  // The list and the queue are two readings of the same counts.
+  const decks = await reviewDecks(db, owner, today)
+  expect(
+    decks.map((item) => [item.noteTitle, item.due, item.fresh, item.total]),
+  ).toEqual([
+    ['Flashcards · Light', 1, 1, 2],
+    ['Flashcards · Sound', 0, 1, 1],
+  ])
+  expect(decks.reduce((sum, item) => sum + item.due + item.fresh, 0)).toBe(
+    all.summary.due + all.summary.fresh,
+  )
+
+  const onlySound = await reviewQueue(db, owner, today, 40, sound.id)
+  expect(onlySound.cards).toHaveLength(1)
+  expect(onlySound.cards.every((card) => card.noteId === sound.id)).toBe(true)
+  expect(onlySound.summary).toEqual({
+    due: 0,
+    fresh: 1,
+    total: 1,
+    nextDue: '',
+  })
+
+  const onlyLight = await reviewQueue(db, owner, today, 40, light.id)
+  expect(onlyLight.summary).toEqual({
+    due: 1,
+    fresh: 1,
+    total: 2,
+    nextDue: '',
+  })
+  // The waiting card comes before the new one.
+  expect(onlyLight.cards.map((card) => card.question)).toEqual([
+    'What is light?',
+    'What is refraction?',
+  ])
+  expect(onlyLight.cards[0]?.dueDate).toBe('2026-11-25')
+
+  // The route passes the deck through, and an unknown deck hands out nothing.
+  const viaRoute = (await (await call(app, `/api/review?deck=${sound.id}`)).json()) as {
+    cards: ReviewCard[]
+    summary: ReviewSummary
+  }
+  expect(viaRoute.summary.total).toBe(1)
+  expect(viaRoute.cards[0]?.noteTitle).toBe('Flashcards · Sound')
+
+  const missing = await reviewQueue(db, owner, today, 40, crypto.randomUUID())
+  expect(missing.summary.total).toBe(0)
+  expect(missing.cards).toHaveLength(0)
 })
 
 test('deleting a deck deletes its history', async () => {

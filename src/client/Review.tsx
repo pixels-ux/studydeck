@@ -73,6 +73,7 @@ export default function Review({
   const [revealed, setRevealed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<'today' | 'decks'>('today')
+  const [deckId, setDeckId] = useState<string | null>(null)
   const [decks, setDecks] = useState<ReviewDeck[] | null>(null)
   const [decksError, setDecksError] = useState('')
 
@@ -80,7 +81,8 @@ export default function Review({
     setLoading(true)
     setError('')
     try {
-      const next = await api<Queue>('/api/review')
+      const query = deckId ? `?deck=${encodeURIComponent(deckId)}` : ''
+      const next = await api<Queue>(`/api/review${query}`)
       setQueue(next)
       setIndex(0)
       setRevealed(false)
@@ -89,7 +91,7 @@ export default function Review({
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [deckId])
 
   useEffect(() => {
     void load()
@@ -165,13 +167,42 @@ export default function Review({
   const subjectName = (id: string | null) =>
     data.subjects.find((subject) => subject.id === id)?.name ?? 'General'
 
+  /** Narrow the queue to one deck, so its cards come up on their own. */
+  const openDeck = (deck: ReviewDeck) => {
+    setDeckId(deck.noteId)
+    // Drop the notebook queue so the deck's own batch is fetched cleanly.
+    setQueue(null)
+    setView('today')
+  }
+
+  const backToDecks = () => {
+    setDeckId(null)
+    setView('decks')
+  }
+
+  const deckName = deckId
+    ? (decks?.find((item) => item.noteId === deckId)?.noteTitle ??
+      queue?.cards[0]?.noteTitle ??
+      '')
+    : ''
+
   // Where the daily queue pulls from: the decks, and what each one owes.
   const dueToday = (queue?.summary.due ?? 0) + (queue?.summary.fresh ?? 0)
   const deckDue = (decks ?? []).reduce(
     (sum, deck) => sum + deck.due + deck.fresh,
     0,
   )
-  const viewBar = (
+  const viewBar = deckId ? (
+    <div className="week-toolbar">
+      <button type="button" className="btn ghost small" onClick={backToDecks}>
+        ← All decks
+      </button>
+      <span className="week-label">
+        {deckName ? deckName.replace(/^Flashcards · /, '') : 'This deck'}
+        {queue ? ` · ${dueToday} due today` : ''}
+      </span>
+    </div>
+  ) : (
     <div className="week-toolbar">
       <div className="segmented" role="group" aria-label="Review view">
         <button
@@ -243,7 +274,7 @@ export default function Review({
             </div>
             <p className="muted deck-intro">
               Due today is what the queue can hand out now, and a new card counts
-              as due. The batch takes the cards that have waited longest first.
+              as due. Open a deck to review just its cards.
             </p>
             <table className="deck-table">
               <thead>
@@ -259,19 +290,26 @@ export default function Review({
                   return (
                     <tr key={deck.noteId}>
                       <th scope="row">
-                        <span className="deck-subject">
-                          {subjectName(deck.subjectId)}
-                        </span>
-                        <span className="deck-title">
-                          {deck.noteTitle.replace(/^Flashcards · /, '')}
-                        </span>
-                        <span className="deck-when">
-                          {waiting > 0
-                            ? `${deck.fresh} new · ${deck.due} coming back`
-                            : deck.nextDue
-                              ? `next on ${fmtDate(deck.nextDue)}`
-                              : 'nothing scheduled'}
-                        </span>
+                        <button
+                          type="button"
+                          className="deck-open"
+                          onClick={() => openDeck(deck)}
+                          title={`Review ${deck.noteTitle.replace(/^Flashcards · /, '')}`}
+                        >
+                          <span className="deck-subject">
+                            {subjectName(deck.subjectId)}
+                          </span>
+                          <span className="deck-title">
+                            {deck.noteTitle.replace(/^Flashcards · /, '')}
+                          </span>
+                          <span className="deck-when">
+                            {waiting > 0
+                              ? `${deck.fresh} new · ${deck.due} coming back`
+                              : deck.nextDue
+                                ? `next on ${fmtDate(deck.nextDue)}`
+                                : 'nothing scheduled'}
+                          </span>
+                        </button>
                       </th>
                       <td className={waiting > 0 ? 'deck-count' : 'deck-count quiet'}>
                         {waiting}
@@ -309,6 +347,11 @@ export default function Review({
             <button className="btn primary" onClick={() => void load()}>
               Try again
             </button>
+            {deckId ? (
+              <button className="btn ghost" onClick={backToDecks}>
+                Back to all decks
+              </button>
+            ) : null}
           </div>
         </section>
       </div>
@@ -318,6 +361,26 @@ export default function Review({
   if (!queue) return null
 
   if (queue.summary.total === 0) {
+    if (deckId) {
+      return (
+        <div className="stack">
+          {viewBar}
+          <section className="card review-empty">
+            <p className="eyebrow">Deck not found</p>
+            <h3>That deck is no longer here</h3>
+            <p className="muted">
+              It may have been deleted or renamed since the list was read. Your other
+              decks are still in the book.
+            </p>
+            <div className="form-actions">
+              <button className="btn primary" onClick={backToDecks}>
+                Back to all decks
+              </button>
+            </div>
+          </section>
+        </div>
+      )
+    }
     return (
       <div className="stack">
         {viewBar}
@@ -352,20 +415,30 @@ export default function Review({
         <section className="card review-empty">
           <p className="eyebrow">{moreDue > 0 ? 'Batch done' : 'All caught up'}</p>
           <h3>
-            {moreDue > 0
-              ? `${moreDue} more ${moreDue === 1 ? 'card' : 'cards'} due today`
-              : data.reviewStats.answeredToday === 1
-                ? 'You answered one card today'
-                : `You answered ${data.reviewStats.answeredToday} cards today`}
+            {deckId
+              ? moreDue > 0
+                ? `${moreDue} more from this deck`
+                : 'Nothing due in this deck'
+              : moreDue > 0
+                ? `${moreDue} more ${moreDue === 1 ? 'card' : 'cards'} due today`
+                : data.reviewStats.answeredToday === 1
+                  ? 'You answered one card today'
+                  : `You answered ${data.reviewStats.answeredToday} cards today`}
           </h3>
           <p className="muted">
-            {moreDue > 0
-              ? 'The queue is handed out forty cards at a time, so a long backlog does not become one endless sitting. Take a break, or keep going.'
-              : data.reviewStats.answeredToday === 0
-                ? 'Nothing was due. New cards appear here the day after you make a deck.'
+            {deckId
+              ? moreDue > 0
+                ? 'The queue is handed out forty cards at a time, so a long backlog does not become one endless sitting. Keep going, or go back to the other decks.'
                 : queue.summary.nextDue
-                  ? `The next cards come back on ${fmtDate(queue.summary.nextDue)}.`
-                  : 'Every card is scheduled. Studydeck will bring them back when they are due.'}
+                  ? `The next card in this deck comes back on ${fmtDate(queue.summary.nextDue)}.`
+                  : 'Every card in this deck is scheduled. Studydeck will bring them back when they are due.'
+              : moreDue > 0
+                ? 'The queue is handed out forty cards at a time, so a long backlog does not become one endless sitting. Take a break, or keep going.'
+                : data.reviewStats.answeredToday === 0
+                  ? 'Nothing was due. New cards appear here the day after you make a deck.'
+                  : queue.summary.nextDue
+                    ? `The next cards come back on ${fmtDate(queue.summary.nextDue)}.`
+                    : 'Every card is scheduled. Studydeck will bring them back when they are due.'}
           </p>
           {data.reviewStats.total > 0 ? (
             <>
@@ -377,11 +450,18 @@ export default function Review({
             </>
           ) : null}
           <div className="form-actions">
-            <button className="btn primary" onClick={() => onNavigate('today')}>
-              Back to Today
+            <button
+              className="btn primary"
+              onClick={deckId ? backToDecks : () => onNavigate('today')}
+            >
+              {deckId ? 'Back to all decks' : 'Back to Today'}
             </button>
             <button className="btn ghost" onClick={() => void load()}>
-              {moreDue > 0 ? 'Review the next forty' : 'Check the queue again'}
+              {moreDue > 0
+                ? 'Review the next forty'
+                : deckId
+                  ? 'Check this deck again'
+                  : 'Check the queue again'}
             </button>
           </div>
         </section>

@@ -1,5 +1,5 @@
 import type { DayHomework, Entry, EntryInput } from '../shared/types'
-import { dayIndexOf } from './dates'
+import { addDays, dayIndexOf } from './dates'
 
 /**
  * Builds the evening after a real school day.
@@ -58,6 +58,8 @@ export type EveningPlan = {
 }
 
 const REVIEW = 20
+/** Past blocks are offered back for a week, then left where they are. */
+export const RECOVERY_DAYS = 7
 const HOMEWORK_BLOCK = 45
 const BACKLOG_BLOCK = 40
 const SMALLEST_BLOCK = 15
@@ -268,6 +270,29 @@ export function buildEveningPlan({
     pulledIds,
     missedRecoveryMinutes,
   }
+}
+
+/**
+ * Revision blocks from the last week that were planned and never happened,
+ * newest first. Older plans stay on the timetable but stop being offered, so
+ * a forgotten fortnight cannot pile onto tonight.
+ */
+export function recoverableBlocks(
+  entries: Entry[],
+  today: string,
+  days = RECOVERY_DAYS,
+): Entry[] {
+  const from = addDays(today, -days)
+  return entries
+    .filter(
+      (entry) =>
+        entry.plan === 'intensive' &&
+        entry.kind === 'study' &&
+        Boolean(entry.date) &&
+        entry.date >= from &&
+        entry.date < today,
+    )
+    .sort((a, b) => b.date.localeCompare(a.date) || a.startMin - b.startMin)
 }
 
 function entryInput(entry: Entry): EntryInput {

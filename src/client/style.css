@@ -2693,6 +2693,14 @@ a.btn {
   margin-bottom: 6px;
 }
 
+.day-head-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .day-steps {
   margin: 14px 0 6px;
 }

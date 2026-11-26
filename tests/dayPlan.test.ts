@@ -4,6 +4,7 @@ import {
   breakLengthFor,
   buildEveningPlan,
   planWithout,
+  recoverableBlocks,
 } from '../src/client/dayPlan'
 import { formatTimetable, parseTimetable } from '../src/client/timetableText'
 
@@ -170,6 +171,39 @@ test('a recovered block still yields to homework with a deadline', () => {
   expect(plan.pulledIds).toEqual([])
   expect(plan.missedRecoveryMinutes).toBe(40)
   expect(plan.entries[0]!.title).toBe('Algebra problems')
+})
+
+test('only skipped blocks from the last week are offered back', () => {
+  const entry = (
+    id: string,
+    date: string,
+    values: { kind?: 'study' | 'break'; plan?: 'intensive' | 'regular'; startMin?: number } = {},
+  ) => ({
+    id,
+    subjectId: null,
+    title: id,
+    kind: values.kind ?? ('study' as const),
+    day: 2,
+    startMin: values.startMin ?? 1020,
+    endMin: (values.startMin ?? 1020) + 20,
+    room: '',
+    plan: values.plan ?? ('intensive' as const),
+    date,
+  })
+  const blocks = recoverableBlocks(
+    [
+      entry('edge', '2026-11-19'),
+      entry('old', '2026-11-18'),
+      entry('today', '2026-11-26'),
+      entry('late', '2026-11-25', { startMin: 1080 }),
+      entry('early', '2026-11-25', { startMin: 960 }),
+      entry('break', '2026-11-24', { kind: 'break' }),
+      entry('class', '2026-11-24', { plan: 'regular' }),
+    ],
+    '2026-11-26',
+  )
+  // A week back is still offered; anything older, today and non-study is not.
+  expect(blocks.map((block) => block.id)).toEqual(['early', 'late', 'edge'])
 })
 
 test('carried and dropped blocks leave their old day, and neighbours stay', () => {

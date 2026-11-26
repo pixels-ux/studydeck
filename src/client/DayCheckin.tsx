@@ -18,7 +18,13 @@ import {
   toTimeValue,
   todayISO,
 } from './dates'
-import { backlogOf, buildEveningPlan, planWithout, type Backlog } from './dayPlan'
+import {
+  backlogOf,
+  buildEveningPlan,
+  planWithout,
+  recoverableBlocks,
+  type Backlog,
+} from './dayPlan'
 import Prose from './Prose'
 import { useWorkspace } from './workspace'
 
@@ -195,20 +201,9 @@ export default function DayCheckin() {
     [today, freeFrom, freeUntil, homework, covered, backlog, carried],
   )
 
-  // Revision blocks from earlier days that nothing has replaced.
+  // Revision blocks from the last week that nothing has replaced.
   const skipped = useMemo(
-    () =>
-      data.entries
-        .filter(
-          (entry) =>
-            entry.plan === 'intensive' &&
-            entry.kind === 'study' &&
-            entry.date &&
-            entry.date < today,
-        )
-        .sort(
-          (a, b) => b.date.localeCompare(a.date) || a.startMin - b.startMin,
-        ),
+    () => recoverableBlocks(data.entries, today),
     [data.entries, today],
   )
   const openSkipped = skipped.filter(
@@ -327,10 +322,26 @@ export default function DayCheckin() {
     <section className="card day-card">
       <div className="card-head">
         <h3>Check in your day</h3>
-        <span className="count">
-          {schoolPeriods} school period{schoolPeriods === 1 ? '' : 's'}
-          {coachingEntry ? ' · coaching' : ''}
-        </span>
+        <div className="day-head-tools">
+          {openSkipped.length ? (
+            <button
+              type="button"
+              className="btn ghost small"
+              title="Open tonight’s plan"
+              onClick={() => {
+                setError('')
+                setStep(3)
+              }}
+            >
+              {openSkipped.length} missed block
+              {openSkipped.length === 1 ? '' : 's'}
+            </button>
+          ) : null}
+          <span className="count">
+            {schoolPeriods} school period{schoolPeriods === 1 ? '' : 's'}
+            {coachingEntry ? ' · coaching' : ''}
+          </span>
+        </div>
       </div>
       <p className="muted">
         Say what was actually taught, what homework was set and when you are free.
@@ -616,7 +627,7 @@ export default function DayCheckin() {
                 </span>
               </div>
               <p className="muted small">
-                These revision blocks were planned for a past day and never
+                These revision blocks were planned in the last week and never
                 happened. Bring one into tonight, or drop it for good.
               </p>
               <ul className="recovery-list">
@@ -681,7 +692,8 @@ export default function DayCheckin() {
                       dropped.length === 1 ? '' : 's'
                     } ${dropped.length === 1 ? 'goes' : 'go'} when you save tonight’s plan. `
                   : ''}
-                A block that does not fit tonight stays where it was.
+                A block that does not fit tonight stays where it was. Anything
+                older than a week stops being offered.
               </p>
             </div>
           ) : null}

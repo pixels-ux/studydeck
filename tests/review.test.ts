@@ -1,5 +1,10 @@
 import { expect, test } from 'bun:test'
-import type { ReviewCard, ReviewSummary, WorkspaceData } from '../src/shared/types'
+import type {
+  ReviewCard,
+  ReviewDeck,
+  ReviewSummary,
+  WorkspaceData,
+} from '../src/shared/types'
 import { cardKey } from '../src/shared/revision.ts'
 import { addDays, nextGap, nextReview } from '../src/shared/review.ts'
 import { openDatabase } from '../src/node/sqlite'
@@ -254,6 +259,57 @@ test('a card that is not in the deck, or a bad answer, is refused', async () => 
     result: 'good',
   })
   expect(wrongNote.status).toBe(404)
+})
+
+test('every deck is listed with its due and total card counts', async () => {
+  const app = createApp(openDatabase(':memory:'), {})
+  const made = async (title: string, body: string) => {
+    const saved = await call(app, '/api/notes', 'POST', {
+      subjectId: null,
+      title,
+      body,
+    })
+    return ((await saved.json()) as { note: { id: string } }).note
+  }
+
+  const light = await made('Flashcards · Light', deck)
+  await made(
+    'Flashcards · Sound',
+    ['Q: How does sound travel?', 'A: As a wave through a medium.'].join('\n'),
+  )
+  await made('Slides · Light', 'Light\n- travels in straight lines')
+
+  const first = (await (await call(app, '/api/review/decks')).json()) as {
+    decks: ReviewDeck[]
+  }
+  // Slides are not decks, and the deck with the most waiting comes first.
+  expect(
+    first.decks.map((item) => [item.noteTitle, item.due, item.fresh, item.total]),
+  ).toEqual([
+    ['Flashcards · Light', 0, 2, 2],
+    ['Flashcards · Sound', 0, 1, 1],
+  ])
+
+  const today = new Date().toISOString().slice(0, 10)
+  await call(app, '/api/review', 'POST', {
+    noteId: light.id,
+    cardKey: cardKey('What is light?'),
+    result: 'good',
+  })
+
+  const after = (await (await call(app, '/api/review/decks')).json()) as {
+    decks: ReviewDeck[]
+  }
+  const lit = after.decks.find((item) => item.noteId === light.id)!
+  expect(lit).toMatchObject({ due: 0, fresh: 1, total: 2 })
+  expect(lit.nextDue).toBe(addDays(today, 1))
+  // The deck counts add up to the queue's own summary.
+  const queue = (await (await call(app, '/api/review')).json()) as {
+    summary: ReviewSummary
+  }
+  expect(queue.summary.due + queue.summary.fresh).toBe(
+    after.decks.reduce((sum, item) => sum + item.due + item.fresh, 0),
+  )
 })
 
 test('deleting a deck deletes its history', async () => {

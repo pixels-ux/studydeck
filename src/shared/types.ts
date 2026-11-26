@@ -220,6 +220,21 @@ export type ReviewStats = {
   total: number
 }
 
+/** One deck and how its cards feed the daily queue. */
+export type ReviewDeck = {
+  noteId: string
+  noteTitle: string
+  subjectId: string | null
+  /** Answered cards whose due date has arrived. */
+  due: number
+  /** Cards never answered, which the queue treats as due. */
+  fresh: number
+  /** Every distinct card in the deck. */
+  total: number
+  /** The first future day one of its cards comes back, or "". */
+  nextDue: string
+}
+
 /** How much review work is waiting, for Today and the rail. */
 export type ReviewSummary = {
   due: number

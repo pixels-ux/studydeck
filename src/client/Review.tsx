@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { nextGap } from '../shared/review'
 import type {
   ReviewCard,
+  ReviewDeck,
   ReviewResult,
   ReviewStats,
   ReviewSummary,
@@ -71,6 +72,9 @@ export default function Review({
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [view, setView] = useState<'today' | 'decks'>('today')
+  const [decks, setDecks] = useState<ReviewDeck[] | null>(null)
+  const [decksError, setDecksError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -91,6 +95,22 @@ export default function Review({
     void load()
   }, [load])
 
+  const loadDecks = useCallback(async () => {
+    setDecksError('')
+    try {
+      const next = await api<{ decks: ReviewDeck[] }>('/api/review/decks')
+      setDecks(next.decks)
+    } catch (e) {
+      setDecksError(e instanceof Error ? e.message : 'Could not read your decks.')
+    }
+  }, [])
+
+  // Read the decks the first time the view is opened; grading clears them so
+  // the counts are fresh the next time it is.
+  useEffect(() => {
+    if (view === 'decks' && !decks) void loadDecks()
+  }, [decks, loadDecks, view])
+
   const cards = queue?.cards ?? []
   const card = cards[index] ?? null
   const finished = Boolean(queue) && index >= cards.length
@@ -109,6 +129,7 @@ export default function Review({
         setRevealed(false)
         // Keeps the rail badge, the tab title and the record in step.
         void refresh()
+        setDecks(null)
         setIndex(index + 1)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not save that answer.')
@@ -144,24 +165,153 @@ export default function Review({
   const subjectName = (id: string | null) =>
     data.subjects.find((subject) => subject.id === id)?.name ?? 'General'
 
+  // Where the daily queue pulls from: the decks, and what each one owes.
+  const dueToday = (queue?.summary.due ?? 0) + (queue?.summary.fresh ?? 0)
+  const deckDue = (decks ?? []).reduce(
+    (sum, deck) => sum + deck.due + deck.fresh,
+    0,
+  )
+  const viewBar = (
+    <div className="week-toolbar">
+      <div className="segmented" role="group" aria-label="Review view">
+        <button
+          type="button"
+          className={view === 'today' ? 'seg active' : 'seg'}
+          onClick={() => setView('today')}
+        >
+          Today’s cards
+        </button>
+        <button
+          type="button"
+          className={view === 'decks' ? 'seg active' : 'seg'}
+          onClick={() => setView('decks')}
+        >
+          All decks
+        </button>
+      </div>
+      <span className="week-label">
+        {view === 'decks'
+          ? decks
+            ? `${decks.length} ${decks.length === 1 ? 'deck' : 'decks'} · ${deckDue} due today`
+            : 'Reading your decks…'
+          : queue
+            ? `${queue.summary.total} ${queue.summary.total === 1 ? 'card' : 'cards'} in all · ${dueToday} due today`
+            : ''}
+      </span>
+    </div>
+  )
+
+  if (view === 'decks') {
+    return (
+      <div className="stack">
+        {viewBar}
+        {decksError ? (
+          <section className="card">
+            <p className="error small">{decksError}</p>
+            <div className="form-actions">
+              <button className="btn primary" onClick={() => void loadDecks()}>
+                Try again
+              </button>
+            </div>
+          </section>
+        ) : !decks ? (
+          <section className="card">
+            <p className="empty-line">Reading your decks…</p>
+          </section>
+        ) : decks.length === 0 ? (
+          <section className="card review-empty">
+            <p className="eyebrow">No decks yet</p>
+            <h3>Your decks are waiting to be made</h3>
+            <p className="muted">
+              In the Library, open a chapter and press <strong>Flashcards</strong> — one
+              item or a whole subject. Each deck shows up here with the cards it
+              feeds into the daily queue.
+            </p>
+            <div className="form-actions">
+              <button className="btn primary" onClick={() => onNavigate('library')}>
+                Open the Library
+              </button>
+            </div>
+          </section>
+        ) : (
+          <section className="card">
+            <div className="card-head">
+              <h3>Every deck</h3>
+              <span className="count">
+                {decks.length} {decks.length === 1 ? 'deck' : 'decks'}
+              </span>
+            </div>
+            <p className="muted deck-intro">
+              Due today is what the queue can hand out now, and a new card counts
+              as due. The batch takes the cards that have waited longest first.
+            </p>
+            <table className="deck-table">
+              <thead>
+                <tr>
+                  <th scope="col">Deck</th>
+                  <th scope="col">Due today</th>
+                  <th scope="col">Cards</th>
+                </tr>
+              </thead>
+              <tbody>
+                {decks.map((deck) => {
+                  const waiting = deck.due + deck.fresh
+                  return (
+                    <tr key={deck.noteId}>
+                      <th scope="row">
+                        <span className="deck-subject">
+                          {subjectName(deck.subjectId)}
+                        </span>
+                        <span className="deck-title">
+                          {deck.noteTitle.replace(/^Flashcards · /, '')}
+                        </span>
+                        <span className="deck-when">
+                          {waiting > 0
+                            ? `${deck.fresh} new · ${deck.due} coming back`
+                            : deck.nextDue
+                              ? `next on ${fmtDate(deck.nextDue)}`
+                              : 'nothing scheduled'}
+                        </span>
+                      </th>
+                      <td className={waiting > 0 ? 'deck-count' : 'deck-count quiet'}>
+                        {waiting}
+                      </td>
+                      <td className="deck-count quiet">{deck.total}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </section>
+        )}
+      </div>
+    )
+  }
+
   if (loading && !queue) {
     return (
-      <section className="card">
-        <p className="empty-line">Opening today’s cards…</p>
-      </section>
+      <div className="stack">
+        {viewBar}
+        <section className="card">
+          <p className="empty-line">Opening today’s cards…</p>
+        </section>
+      </div>
     )
   }
 
   if (error && !queue) {
     return (
-      <section className="card">
-        <p className="error small">{error}</p>
-        <div className="form-actions">
-          <button className="btn primary" onClick={() => void load()}>
-            Try again
-          </button>
-        </div>
-      </section>
+      <div className="stack">
+        {viewBar}
+        <section className="card">
+          <p className="error small">{error}</p>
+          <div className="form-actions">
+            <button className="btn primary" onClick={() => void load()}>
+              Try again
+            </button>
+          </div>
+        </section>
+      </div>
     )
   }
 
@@ -169,20 +319,23 @@ export default function Review({
 
   if (queue.summary.total === 0) {
     return (
-      <section className="card review-empty">
-        <p className="eyebrow">Nothing to review yet</p>
-        <h3>Your decks are waiting to be made</h3>
-        <p className="muted">
-          In the Library, open a chapter and press <strong>Flashcards</strong> — one
-          item or a whole subject. Studydeck then brings a few back each day until
-          they stick.
-        </p>
-        <div className="form-actions">
-          <button className="btn primary" onClick={() => onNavigate('library')}>
-            Open the Library
-          </button>
-        </div>
-      </section>
+      <div className="stack">
+        {viewBar}
+        <section className="card review-empty">
+          <p className="eyebrow">Nothing to review yet</p>
+          <h3>Your decks are waiting to be made</h3>
+          <p className="muted">
+            In the Library, open a chapter and press <strong>Flashcards</strong> — one
+            item or a whole subject. Studydeck then brings a few back each day until
+            they stick.
+          </p>
+          <div className="form-actions">
+            <button className="btn primary" onClick={() => onNavigate('library')}>
+              Open the Library
+            </button>
+          </div>
+        </section>
+      </div>
     )
   }
 
@@ -194,42 +347,45 @@ export default function Review({
       queue.summary.due + queue.summary.fresh - queue.cards.length,
     )
     return (
-      <section className="card review-empty">
-        <p className="eyebrow">{moreDue > 0 ? 'Batch done' : 'All caught up'}</p>
-        <h3>
-          {moreDue > 0
-            ? `${moreDue} more ${moreDue === 1 ? 'card' : 'cards'} due today`
-            : data.reviewStats.answeredToday === 1
-              ? 'You answered one card today'
-              : `You answered ${data.reviewStats.answeredToday} cards today`}
-        </h3>
-        <p className="muted">
-          {moreDue > 0
-            ? 'The queue is handed out forty cards at a time, so a long backlog does not become one endless sitting. Take a break, or keep going.'
-            : data.reviewStats.answeredToday === 0
-              ? 'Nothing was due. New cards appear here the day after you make a deck.'
-              : queue.summary.nextDue
-                ? `The next cards come back on ${fmtDate(queue.summary.nextDue)}.`
-                : 'Every card is scheduled. Studydeck will bring them back when they are due.'}
-        </p>
-        {data.reviewStats.total > 0 ? (
-          <>
-            <ReviewRecord stats={data.reviewStats} />
-            <p className="fineprint">
-              Missed days counts the days in the last 30 with no answers, after
-              your first review. A streak stays alive until the day is over.
-            </p>
-          </>
-        ) : null}
-        <div className="form-actions">
-          <button className="btn primary" onClick={() => onNavigate('today')}>
-            Back to Today
-          </button>
-          <button className="btn ghost" onClick={() => void load()}>
-            {moreDue > 0 ? 'Review the next forty' : 'Check the queue again'}
-          </button>
-        </div>
-      </section>
+      <div className="stack">
+        {viewBar}
+        <section className="card review-empty">
+          <p className="eyebrow">{moreDue > 0 ? 'Batch done' : 'All caught up'}</p>
+          <h3>
+            {moreDue > 0
+              ? `${moreDue} more ${moreDue === 1 ? 'card' : 'cards'} due today`
+              : data.reviewStats.answeredToday === 1
+                ? 'You answered one card today'
+                : `You answered ${data.reviewStats.answeredToday} cards today`}
+          </h3>
+          <p className="muted">
+            {moreDue > 0
+              ? 'The queue is handed out forty cards at a time, so a long backlog does not become one endless sitting. Take a break, or keep going.'
+              : data.reviewStats.answeredToday === 0
+                ? 'Nothing was due. New cards appear here the day after you make a deck.'
+                : queue.summary.nextDue
+                  ? `The next cards come back on ${fmtDate(queue.summary.nextDue)}.`
+                  : 'Every card is scheduled. Studydeck will bring them back when they are due.'}
+          </p>
+          {data.reviewStats.total > 0 ? (
+            <>
+              <ReviewRecord stats={data.reviewStats} />
+              <p className="fineprint">
+                Missed days counts the days in the last 30 with no answers, after
+                your first review. A streak stays alive until the day is over.
+              </p>
+            </>
+          ) : null}
+          <div className="form-actions">
+            <button className="btn primary" onClick={() => onNavigate('today')}>
+              Back to Today
+            </button>
+            <button className="btn ghost" onClick={() => void load()}>
+              {moreDue > 0 ? 'Review the next forty' : 'Check the queue again'}
+            </button>
+          </div>
+        </section>
+      </div>
     )
   }
 
@@ -240,6 +396,7 @@ export default function Review({
 
   return (
     <div className="stack">
+      {viewBar}
       <section className="card review-head">
         <div>
           <p className="eyebrow">{subjectName(card.subjectId)}</p>

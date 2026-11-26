@@ -47,7 +47,7 @@ import {
   type SemanticIndex,
 } from './library.ts'
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers.ts'
-import { gradeCard, reviewQueue, reviewStats } from './review.ts'
+import { gradeCard, reviewDecks, reviewQueue, reviewStats } from './review.ts'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
   BASE_OWNER,
@@ -3106,6 +3106,12 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     const limit = whole(c.req.query('limit'), 1, 100) ?? 40
     const today = new Date().toISOString().slice(0, 10)
     return c.json(await reviewQueue(db, c.get('owner'), today, limit))
+  })
+
+  /** Every deck and the counts that feed today's queue, for the All decks view. */
+  app.get('/api/review/decks', async (c) => {
+    const today = new Date().toISOString().slice(0, 10)
+    return c.json({ decks: await reviewDecks(db, c.get('owner'), today) })
   })
 
   /** One answer from the review screen; no model is called, so no quota is used. */

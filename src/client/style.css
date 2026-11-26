@@ -3421,6 +3421,88 @@ a.btn {
   max-width: 66ch;
 }
 
+.deck-intro {
+  margin: 0 0 14px;
+  max-width: 72ch;
+  font-size: 13px;
+}
+
+.deck-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.deck-table thead th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.deck-table thead th:not(:first-child) {
+  text-align: right;
+}
+
+.deck-table tbody tr {
+  border-bottom: 1px solid var(--line);
+}
+
+.deck-table tbody tr:last-child {
+  border-bottom: 0;
+}
+
+.deck-table tbody th,
+.deck-table tbody td {
+  padding: 11px 12px;
+  vertical-align: middle;
+}
+
+.deck-table tbody th {
+  font-weight: 400;
+  text-align: left;
+}
+
+.deck-table tbody th span {
+  display: block;
+}
+
+.deck-subject {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.deck-title {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 550;
+}
+
+.deck-when {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.deck-count {
+  width: 92px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-count.quiet {
+  color: var(--muted);
+  font-weight: 500;
+}
+
 @media (max-width: 720px) {
   .search-open kbd {
     display: none;
@@ -3432,6 +3514,16 @@ a.btn {
 
   .review-card {
     padding: 22px 18px;
+  }
+
+  .deck-table thead th,
+  .deck-table tbody th,
+  .deck-table tbody td {
+    padding: 10px 6px;
+  }
+
+  .deck-count {
+    width: auto;
   }
 
   .command-overlay {

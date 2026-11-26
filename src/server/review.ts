@@ -2,6 +2,7 @@ import { cardKey, parseCards, revisionKindOf } from '../shared/revision.ts'
 import { addDays, nextReview, REVIEW_RESULTS } from '../shared/review.ts'
 import type {
   ReviewCard,
+  ReviewDeck,
   ReviewResult,
   ReviewStats,
   ReviewSummary,
@@ -140,6 +141,68 @@ export async function reviewQueue(
       nextDue,
     },
   }
+}
+
+/**
+ * Every deck with the counts the daily queue is drawn from: the cards waiting,
+ * the cards still new, and the whole deck. The decks with the most to hand out
+ * come first, so the queue's source is visible at a glance.
+ */
+export async function reviewDecks(
+  db: SqlDatabase,
+  owner: string,
+  today: string,
+): Promise<ReviewDeck[]> {
+  const [notes, states] = await Promise.all([
+    cardNotes(db, owner),
+    cardStates(db, owner),
+  ])
+
+  const known = new Map<string, ReviewRow>()
+  for (const row of states.results)
+    known.set(`${row.note_id}::${row.card_key}`, row)
+
+  const decks: ReviewDeck[] = []
+  for (const note of notes.results) {
+    if (revisionKindOf(note.title) !== 'cards') continue
+    const seen = new Set<string>()
+    let total = 0
+    let due = 0
+    let fresh = 0
+    let nextDue = ''
+    for (const card of parseCards(note.body)) {
+      const key = cardKey(card.question)
+      if (seen.has(key)) continue
+      seen.add(key)
+      total += 1
+      const state = known.get(`${note.id}::${key}`)
+      if (!state) {
+        fresh += 1
+        continue
+      }
+      if (state.due_date <= today) due += 1
+      else if (!nextDue || state.due_date < nextDue) nextDue = state.due_date
+    }
+    // A deck with no readable cards feeds nothing into the queue.
+    if (!total) continue
+    decks.push({
+      noteId: note.id,
+      noteTitle: note.title,
+      subjectId: note.subject_id,
+      due,
+      fresh,
+      total,
+      nextDue,
+    })
+  }
+
+  decks.sort(
+    (a, b) =>
+      b.due + b.fresh - (a.due + a.fresh) ||
+      b.total - a.total ||
+      a.noteTitle.localeCompare(b.noteTitle),
+  )
+  return decks
 }
 
 /**

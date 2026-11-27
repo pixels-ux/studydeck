@@ -109,7 +109,11 @@ Studydeck also keeps copies of its own. Before anything can be emptied — a
 notebook deleted, a backup imported, class setup run again — and every half hour
 or so while you edit, it writes the same JSON as **Download a backup** into a
 `backups/` folder beside the data file, and keeps the newest seven. They never
-hold an API key, and any of them loads back with **Import a backup**.
+hold an API key. **Settings → Your data** lists them newest first, with how much
+each one holds; **Restore** puts one back in a single step, replacing the
+notebooks with what the copy had at that moment, and files the workspace as it
+was as a new copy first. If the copy before a delete cannot be written,
+Studydeck refuses the delete and says so rather than emptying the notebook.
 
 The in-app **Download a backup** button in Class setup writes the same content as
 JSON — every notebook, day check-ins and the library's questions and answers
@@ -124,8 +128,8 @@ class setup you have already saved is kept as it is. A notebook in the file is
 matched by id and then by name, so importing the same backup twice does not
 clone it; a file from an older version of Studydeck goes into the notebook you
 have open. The whole file is written in one transaction, so a damaged backup
-leaves the workspace untouched. To restore over an old workspace, empty the
-notebook first and then import.
+leaves the workspace untouched. To put a copy back exactly as it was, use
+**Restore** in Settings; **Import a backup** only ever adds.
 
 There is no login: the app trusts whoever can open <http://localhost:3000>. It
 binds to all interfaces by default so it works in a container; on a shared

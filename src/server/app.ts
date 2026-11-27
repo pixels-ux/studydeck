@@ -4,6 +4,7 @@ import { syllabusBrief, unitsFor } from '../shared/curriculum.ts'
 import { REVIEW_RESULTS } from '../shared/review.ts'
 import type {
   AiActionInput,
+  BackupEntry,
   Citation,
   DayCovered,
   DayHomework,
@@ -889,7 +890,19 @@ function parseNotebookData(
  * write still has to come from this origin so a stray web page in the same
  * browser cannot change the timetable behind their back.
  */
-export function createApp(db: SqlDatabase, env: Env = {}) {
+/** The automatic copies, as the node layer can list and read them. */
+export type BackupStore = {
+  /** Every copy on this computer, newest first. */
+  list(): BackupEntry[]
+  /** One copy by the name `list` gave it; null when it is gone. */
+  read(name: string): string | null
+}
+
+export function createApp(
+  db: SqlDatabase,
+  env: Env = {},
+  options: { backups?: BackupStore } = {},
+) {
   const app = new Hono<AppContext>()
   app.get('/api/health', (c) => c.json({ ok: true }))
   /** Every notebook on this computer, oldest first. */
@@ -1217,13 +1230,124 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
   })
 
   /**
+   * The automatic copies Settings lists. They live beside the data file, so a
+   * run without a data file has none.
+   */
+  app.get('/api/backups', (c) =>
+    c.json({ backups: options.backups?.list() ?? [] }),
+  )
+
+  /**
+   * Puts one automatic copy back. The workspace becomes exactly what the copy
+   * holds — its notebooks, note bodies, ticks and review progress — and the
+   * class setup comes with it when the copy carries one. Deleting and loading
+   * happen in one batch, so a copy that cannot be read leaves the workspace as
+   * it was; the node layer writes a copy of what is here before this runs.
+   */
+  app.post('/api/backups/:name/restore', async (c) => {
+    const store = options.backups
+    if (!store)
+      return c.json({ error: 'Automatic copies are not available here.' }, 404)
+    const stored = store.read(c.req.param('name'))
+    if (stored === null)
+      return c.json(
+        {
+          error:
+            'That copy is no longer in the backups folder. Reload Settings to see the copies that are.',
+        },
+        404,
+      )
+    let file: Record<string, unknown>
+    try {
+      file = JSON.parse(stored) as Record<string, unknown>
+    } catch {
+      return c.json({ error: IMPORT_FAILED }, 400)
+    }
+    if (!file || typeof file !== 'object' || Array.isArray(file))
+      return c.json({ error: IMPORT_FAILED }, 400)
+    const parsed = parseBackup(file)
+    if ('error' in parsed) return c.json({ error: parsed.error }, 400)
+    if (!parsed.parts.length || parsed.parts.length > 20)
+      return c.json(
+        { error: 'That backup has more notebooks than Studydeck holds.' },
+        400,
+      )
+
+    const open = c.get('notebook')
+    const statements: SqlStatement[] = [
+      ...NOTEBOOK_TABLES.map((table) => db.prepare(`DELETE FROM ${table}`)),
+      db.prepare('DELETE FROM notebooks'),
+    ]
+    const added = emptyCounts()
+    const created = new Set<string>()
+    for (const part of parsed.parts) {
+      // A file from an older version has no notebook of its own, so it takes
+      // the place of the one that was open.
+      const meta = part.notebook ?? open
+      if (!created.has(meta.id)) {
+        created.add(meta.id)
+        statements.push(
+          db
+            .prepare(
+              'INSERT INTO notebooks (id, owner_sub, name, created_at) VALUES (?, ?, ?, ?)',
+            )
+            .bind(meta.id, BASE_OWNER, meta.name, meta.createdAt),
+        )
+      }
+      const merged = await planMerge(part.backup, scopedOwner(meta.id), true)
+      statements.push(...merged.statements)
+      for (const key of Object.keys(added) as (keyof ImportCounts)[])
+        added[key] += merged.added[key]
+    }
+
+    // The timetable follows the class setup the copy was made with. A copy
+    // never holds an AI key, so that stays as it is.
+    if (parsed.profile) {
+      statements.push(
+        db.prepare('DELETE FROM profiles WHERE owner_sub = ?').bind(BASE_OWNER),
+        db
+          .prepare(
+            'INSERT INTO profiles (owner_sub, class_level, school_days, school_start, school_end, period_length, study_hours, setup_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            BASE_OWNER,
+            parsed.profile.classLevel,
+            parsed.profile.schoolDays.join(','),
+            parsed.profile.schoolStart,
+            parsed.profile.schoolEnd,
+            parsed.profile.periodLength,
+            parsed.profile.studyHours,
+            parsed.profile.setupAt,
+          ),
+      )
+    }
+
+    if (statements.length > MAX_IMPORT_STATEMENTS)
+      return c.json({ error: 'That backup is too large to restore at once.' }, 400)
+    await db.batch(statements)
+
+    // The notebook that was open may not be in the copy, so settle on one that is.
+    const current = await resolveNotebook(open.id)
+    return c.json({
+      added,
+      notebooks: await notebooks(),
+      workspace: await workspace(db, env, scopedOwner(current.id), current),
+    })
+  })
+
+  /**
    * Loads a backup back in, additively. A row whose id is already here, a day
    * that was already checked in and a class setup that was already saved are
    * kept; everything else is inserted in one batch, so a bad file cannot leave
    * half a workspace behind.
    */
-  /** What one notebook's part of a backup would add, and what it would keep. */
-  async function planMerge(backup: Backup, owner: string) {
+  /**
+   * What one notebook's part of a backup would add, and what it would keep.
+   * `fresh` is for a restore, which replaces everything first, so there is
+   * nothing in the database to keep.
+   */
+  async function planMerge(backup: Backup, owner: string, fresh = false) {
+    const existing = fresh ? `${owner} (nothing)` : owner
     const [
       subjectRows,
       entryRows,
@@ -1239,47 +1363,47 @@ export function createApp(db: SqlDatabase, env: Env = {}) {
     ] = await Promise.all([
       db
         .prepare('SELECT id, name FROM subjects WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ id: string; name: string }>(),
       db
         .prepare('SELECT id FROM entries WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ id: string }>(),
       db
         .prepare('SELECT id FROM tasks WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ id: string }>(),
       db
         .prepare('SELECT id FROM study_notes WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ id: string }>(),
       db
         .prepare('SELECT id FROM ai_actions WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ id: string }>(),
       db
         .prepare('SELECT id FROM sources WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ id: string }>(),
       db
         .prepare('SELECT id FROM library_messages WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ id: string }>(),
       db
         .prepare('SELECT date FROM day_logs WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ date: string }>(),
       db
         .prepare('SELECT subject_id, chapter FROM syllabus_progress WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ subject_id: string; chapter: string }>(),
       db
         .prepare('SELECT note_id, card_key FROM card_reviews WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ note_id: string; card_key: string }>(),
       db
         .prepare('SELECT note_id, card_key, reviewed_at FROM review_log WHERE owner_sub = ?')
-        .bind(owner)
+        .bind(existing)
         .all<{ note_id: string; card_key: string; reviewed_at: number }>(),
     ])
 

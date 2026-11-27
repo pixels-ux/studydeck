@@ -5,7 +5,13 @@ import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { createApp } from '../server/app.ts'
 import { resolveProvider } from '../server/providers.ts'
-import { automaticBackups, BACKUP_KEEP, backupFolder } from './backups.ts'
+import {
+  BACKUP_KEEP,
+  backupFolder,
+  backupRefusal,
+  backupsFor,
+  fileBackups,
+} from './backups.ts'
 import { readAiEnv } from './env.ts'
 import { sendResponse, toRequest } from './http.ts'
 import { openDatabase } from './sqlite.ts'
@@ -78,25 +84,17 @@ async function serveAsset(request: Request): Promise<Response> {
   return fileResponse(index, pathname)
 }
 
-const app = createApp(openDatabase(databasePath), readAiEnv())
+// The app never touches the disk: it lists and reads copies through this.
+const store = databasePath === ':memory:' ? null : fileBackups(databasePath)
+const app = createApp(openDatabase(databasePath), readAiEnv(), {
+  backups: store ?? undefined,
+})
 
 /**
  * Automatic copies read from the app's own export route, so they are exactly
- * the file Import a backup reads. The app itself never touches the disk.
+ * the file Import a backup reads.
  */
-const readBackup = async (): Promise<string | null> => {
-  try {
-    const response = await app.fetch(new Request('http://localhost/api/export'))
-    return response.ok ? await response.text() : null
-  } catch (error) {
-    console.error('Could not read the workspace for a backup.', error)
-    return null
-  }
-}
-const backups =
-  databasePath === ':memory:'
-    ? null
-    : automaticBackups(databasePath, readBackup)
+const backups = backupsFor(databasePath, app)
 void backups?.startup()
 
 const server = createServer(async (req, res) => {
@@ -115,6 +113,12 @@ const server = createServer(async (req, res) => {
     if (backups && apiPath) backups.after(method, apiPath, response.ok)
     await sendResponse(response, res)
   } catch (error) {
+    // A request that would empty a notebook has no copy of it, so it stops here.
+    const refusal = backupRefusal(error)
+    if (refusal) {
+      await sendResponse(refusal, res)
+      return
+    }
     console.error('Request failed', error)
     if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' })
     res.end('Something went wrong.')

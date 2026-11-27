@@ -284,6 +284,17 @@ export type Notebook = {
   createdAt: number
 }
 
+/** One copy Studydeck wrote on its own, as Settings lists it. */
+export type BackupEntry = {
+  /** The name inside the backups folder, and the handle a restore uses. */
+  name: string
+  /** When the copy was written, in milliseconds. */
+  writtenAt: number
+  bytes: number
+  /** What it holds, e.g. "2 notebooks · 14 notes". */
+  summary: string
+}
+
 export type WorkspaceData = {
   /** Every notebook on this computer, and the one being looked at. */
   notebooks: Notebook[]

@@ -493,6 +493,66 @@ test('the queue counts and names cards from every notebook', async () => {
   expect(again.summary).toMatchObject({ fresh: 3, total: 3 })
 })
 
+test('a card answered again waits in Mistakes, and practice clears it', async () => {
+  const { app } = await withDeck()
+  const queue = (await (await call(app, '/api/review')).json()) as {
+    cards: ReviewCard[]
+  }
+  const light = queue.cards.find((card) => card.question === 'What is light?')!
+  const refraction = queue.cards.find(
+    (card) => card.question === 'What is refraction?',
+  )!
+
+  const answer = (card: ReviewCard, result: string) =>
+    call(app, '/api/review', 'POST', {
+      noteId: card.noteId,
+      cardKey: card.key,
+      result,
+    })
+  expect((await answer(light, 'again')).status).toBe(200)
+  expect((await answer(refraction, 'again')).status).toBe(200)
+  expect((await answer(refraction, 'again')).status).toBe(200)
+
+  // A missed card goes to tomorrow, so today's queue no longer offers it.
+  const daily = (await (await call(app, '/api/review')).json()) as {
+    cards: ReviewCard[]
+  }
+  expect(daily.cards.some((card) => card.question === 'What is light?')).toBe(
+    false,
+  )
+
+  // The list names each card's notebook, and the worst card comes first.
+  const mistakes = (await (await call(app, '/api/review/mistakes')).json()) as {
+    cards: ReviewCard[]
+    total: number
+  }
+  expect(mistakes.total).toBe(2)
+  expect(mistakes.cards.map((card) => [card.question, card.lapses])).toEqual([
+    ['What is refraction?', 2],
+    ['What is light?', 1],
+  ])
+  expect(mistakes.cards[0]?.notebookName).toBe('My notebook')
+
+  // Practice hands them out despite their dates, worst first.
+  const practice = (await (
+    await call(app, '/api/review?practice=1')
+  ).json()) as { cards: ReviewCard[]; summary: ReviewSummary }
+  expect(practice.summary.total).toBe(2)
+  expect(practice.cards.map((card) => card.question)).toEqual([
+    'What is refraction?',
+    'What is light?',
+  ])
+
+  // Answering one without a miss fixes it, so it leaves the list.
+  expect((await answer(light, 'good')).status).toBe(200)
+  const after = (await (await call(app, '/api/review/mistakes')).json()) as {
+    cards: ReviewCard[]
+    total: number
+  }
+  expect(after.total).toBe(1)
+  expect(after.cards[0]?.question).toBe('What is refraction?')
+})
+
 test('deleting a deck deletes its history', async () => {
   const app = createApp(openDatabase(':memory:'), {})
   const saved = await call(app, '/api/notes', 'POST', {

@@ -236,6 +236,11 @@ mistake costs nothing. Only the most recent answer can be taken back.
 | Good | I knew it | later, by the card's ease |
 | Easy | It was obvious | much later, with a higher ease |
 
+A card answered **Again** also lands in **Mistakes**: every notebook's missed
+cards, worst first, each with how often it has been missed and when it is next
+due. **Practise the worst twenty** runs them as a session even though their own
+dates are still ahead, and a card answered without a miss leaves the list.
+
 A new card starts at one day and grows towards a year, so a deck you have not
 seen for a month does not dump every card on you at once. The queue is handed
 out forty cards at a time: when a batch is done the page says how many are still

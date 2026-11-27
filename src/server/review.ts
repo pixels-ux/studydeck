@@ -138,6 +138,46 @@ type DeckCounts = {
   nextDue: string
 }
 
+/** One scanned card as the screen reads it, whatever its date. */
+function readCard(
+  card: ScannedCard,
+  book: ReviewBook,
+  today: string,
+): ReviewCard {
+  const base = {
+    noteId: card.noteId,
+    noteTitle: card.noteTitle,
+    subjectId: card.subjectId,
+    notebookId: book.id,
+    notebookName: book.name,
+    key: card.key,
+    question: card.question,
+    answer: card.answer,
+  }
+  const state = card.state
+  if (!state)
+    return {
+      ...base,
+      dueDate: today,
+      intervalDays: 0,
+      ease: 0,
+      lapses: 0,
+      lastResult: '',
+      reviewedAt: 0,
+      fresh: true,
+    }
+  return {
+    ...base,
+    dueDate: state.due_date,
+    intervalDays: state.interval_days,
+    ease: state.ease,
+    lapses: state.lapses,
+    lastResult: asResult(state.last_result),
+    reviewedAt: state.reviewed_at,
+    fresh: false,
+  }
+}
+
 /** Splits one deck's cards the way the daily queue does. */
 function deckCounts(deck: ScannedDeck, today: string): DeckCounts {
   const due: ReviewCard[] = []
@@ -145,44 +185,10 @@ function deckCounts(deck: ScannedDeck, today: string): DeckCounts {
   let nextDue = ''
 
   for (const card of deck.cards) {
-    const base = {
-      noteId: card.noteId,
-      noteTitle: card.noteTitle,
-      subjectId: card.subjectId,
-      notebookId: deck.book.id,
-      notebookName: deck.book.name,
-      key: card.key,
-      question: card.question,
-      answer: card.answer,
-    }
-    const state = card.state
-    if (!state) {
-      fresh.push({
-        ...base,
-        dueDate: today,
-        intervalDays: 0,
-        ease: 0,
-        lapses: 0,
-        lastResult: '',
-        reviewedAt: 0,
-        fresh: true,
-      })
-      continue
-    }
-    if (state.due_date <= today) {
-      due.push({
-        ...base,
-        dueDate: state.due_date,
-        intervalDays: state.interval_days,
-        ease: state.ease,
-        lapses: state.lapses,
-        lastResult: asResult(state.last_result),
-        reviewedAt: state.reviewed_at,
-        fresh: false,
-      })
-    } else if (!nextDue || state.due_date < nextDue) {
-      nextDue = state.due_date
-    }
+    const read = readCard(card, deck.book, today)
+    if (read.fresh) fresh.push(read)
+    else if (read.dueDate <= today) due.push(read)
+    else if (!nextDue || read.dueDate < nextDue) nextDue = read.dueDate
   }
 
   return { due, fresh, total: deck.cards.length, nextDue }
@@ -291,6 +297,36 @@ export async function reviewAcross(
       nextDue,
     },
   }
+}
+
+/**
+ * The cards you keep missing: the ones whose last answer was “Again”, across
+ * every notebook, worst first. They sit out tomorrow's date, so this is where
+ * a half-learned card can be fixed before its turn comes round again.
+ */
+export async function reviewMistakes(
+  db: SqlDatabase,
+  books: ReviewBook[],
+  today: string,
+  limit = 0,
+): Promise<{ cards: ReviewCard[]; total: number }> {
+  const cards: ReviewCard[] = []
+  for (const book of books) {
+    const decks = await scanDecks(db, scopedOwner(book.id), book)
+    for (const deck of decks)
+      for (const card of deck.cards) {
+        if (!card.state?.lapses || card.state.last_result !== 'again') continue
+        cards.push(readCard(card, book, today))
+      }
+  }
+
+  cards.sort(
+    (a, b) =>
+      b.lapses - a.lapses ||
+      a.dueDate.localeCompare(b.dueDate) ||
+      a.question.localeCompare(b.question),
+  )
+  return { cards: limit > 0 ? cards.slice(0, limit) : cards, total: cards.length }
 }
 
 /**

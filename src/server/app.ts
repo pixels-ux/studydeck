@@ -52,6 +52,7 @@ import {
   gradeCard,
   reviewAcross,
   reviewDecks,
+  reviewMistakes,
   reviewStats,
   undoAvailableAcross,
   undoLastReviewAcross,
@@ -407,6 +408,8 @@ const EXTRACT_PATH = '/api/library/extract'
 const MAX_EXTRACT_BYTES = 25 * 1024 * 1024
 const MAX_IMPORT_STATEMENTS = 5_000
 const BACKUP_VERSION = 3
+/** How many missed cards one practice session hands out. */
+const PRACTICE_LIMIT = 20
 /** Version 2 files are still read: they simply carry no review history. */
 const IMPORT_VERSIONS = [2, BACKUP_VERSION]
 const MAX_TIME = 9_000_000_000_000
@@ -3246,13 +3249,35 @@ export function createApp(
   app.get('/api/review', async (c) => {
     const limit = whole(c.req.query('limit'), 1, 100) ?? 40
     const deck = identifier(c.req.query('deck')) ?? undefined
+    const practice = c.req.query('practice') === '1'
     const today = new Date().toISOString().slice(0, 10)
     // Every notebook feeds the queue, so a due card in another book is not lost.
     const books = await notebooks()
     const owners = books.map((book) => scopedOwner(book.id))
+    if (practice) {
+      // Practice ignores the due date: the point is to fix a card early.
+      const missed = await reviewMistakes(db, books, today, PRACTICE_LIMIT)
+      return c.json({
+        cards: missed.cards,
+        summary: {
+          due: missed.total,
+          fresh: 0,
+          total: missed.total,
+          nextDue: '',
+        },
+        undo: await undoAvailableAcross(db, owners),
+      })
+    }
     const queue = await reviewAcross(db, books, today, limit, deck)
     // The Undo button only appears when there is still an answer to take back.
     return c.json({ ...queue, undo: await undoAvailableAcross(db, owners, deck) })
+  })
+
+  /** The cards answered "Again" last time, across every notebook, worst first. */
+  app.get('/api/review/mistakes', async (c) => {
+    const books = await notebooks()
+    const today = new Date().toISOString().slice(0, 10)
+    return c.json(await reviewMistakes(db, books, today, 100))
   })
 
   /** Every deck and the counts that feed today's queue, for the All decks view. */

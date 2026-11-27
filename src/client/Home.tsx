@@ -138,6 +138,7 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
                 : `${cardsDue} cards are due today`}
             </h3>
             <p className="muted">
+              {data.notebooks.length > 1 ? 'Across all your notebooks. ' : ''}
               {data.review.fresh
                 ? `${data.review.fresh} new · ${data.review.due} coming back. `
                 : ''}

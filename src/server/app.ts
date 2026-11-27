@@ -50,11 +50,11 @@ import {
 import { AiError, PROVIDER_IDS, PROVIDERS, providerFromSettings } from './providers.ts'
 import {
   gradeCard,
+  reviewAcross,
   reviewDecks,
-  reviewQueue,
   reviewStats,
-  undoAvailable,
-  undoLastReview,
+  undoAvailableAcross,
+  undoLastReviewAcross,
 } from './review.ts'
 import type { SqlDatabase, SqlStatement } from './sql'
 import {
@@ -1036,10 +1036,12 @@ export function createApp(
     ])
     const { provider } = await effectiveProvider(db, env, BASE_OWNER)
     const today = new Date().toISOString().slice(0, 10)
-    const review = await reviewQueue(db, owner, today, 0)
+    // The count is every notebook's, so a deck in another book still shows.
+    const books = await notebooks()
+    const review = await reviewAcross(db, books, today, 0)
     const stats = await reviewStats(db, owner, today)
     return {
-      notebooks: await notebooks(),
+      notebooks: books,
       notebookId: notebook.id,
       subjects: subjects.results.map(mapSubject),
       entries: entries.results.map(mapEntry),
@@ -3245,10 +3247,12 @@ export function createApp(
     const limit = whole(c.req.query('limit'), 1, 100) ?? 40
     const deck = identifier(c.req.query('deck')) ?? undefined
     const today = new Date().toISOString().slice(0, 10)
-    const owner = c.get('owner')
-    const queue = await reviewQueue(db, owner, today, limit, deck)
+    // Every notebook feeds the queue, so a due card in another book is not lost.
+    const books = await notebooks()
+    const owners = books.map((book) => scopedOwner(book.id))
+    const queue = await reviewAcross(db, books, today, limit, deck)
     // The Undo button only appears when there is still an answer to take back.
-    return c.json({ ...queue, undo: await undoAvailable(db, owner, deck) })
+    return c.json({ ...queue, undo: await undoAvailableAcross(db, owners, deck) })
   })
 
   /** Every deck and the counts that feed today's queue, for the All decks view. */
@@ -3268,9 +3272,16 @@ export function createApp(
     const result = REVIEW_RESULTS.find((option) => option === body?.result)
     if (!noteId || !cardKeyValue || !result)
       return c.json({ error: 'That review answer could not be read.' }, 400)
+    // A card from another notebook is graded in that notebook's own rows.
+    const home = await db
+      .prepare('SELECT owner_sub FROM study_notes WHERE id = ?')
+      .bind(noteId)
+      .first<{ owner_sub: string }>()
+    if (!home)
+      return c.json({ error: 'That flashcard deck is no longer here.' }, 404)
     const graded = await gradeCard(
       db,
-      c.get('owner'),
+      home.owner_sub,
       noteId,
       cardKeyValue,
       result,
@@ -3291,9 +3302,10 @@ export function createApp(
 
   /** Takes back the answer just given, so a wrong key is not permanent. */
   app.post('/api/review/undo', async (c) => {
-    const undone = await undoLastReview(
+    const books = await notebooks()
+    const undone = await undoLastReviewAcross(
       db,
-      c.get('owner'),
+      books.map((book) => scopedOwner(book.id)),
       new Date().toISOString().slice(0, 10),
     )
     if (undone.ok) return c.json({ card: undone.card })

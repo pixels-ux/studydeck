@@ -7,7 +7,11 @@ import type {
   ReviewStats,
   ReviewSummary,
 } from '../shared/types.ts'
+import { BASE_OWNER, scopedOwner } from './db.ts'
 import type { SqlDatabase } from './sql.ts'
+
+/** A notebook a review queue can draw from. */
+export type ReviewBook = { id: string; name: string }
 
 type CardNoteRow = {
   id: string
@@ -67,6 +71,8 @@ type ScannedDeck = {
   noteId: string
   noteTitle: string
   subjectId: string | null
+  /** The notebook it lives in, so a card in a cross-notebook queue is named. */
+  book: ReviewBook
   /** The deck's distinct cards, in the order the deck lists them. */
   cards: ScannedCard[]
 }
@@ -75,7 +81,11 @@ type ScannedDeck = {
  * Every deck and its cards, read in one pass. Both the queue and the All decks
  * view count from this, so the two can never disagree about a deck.
  */
-async function scanDecks(db: SqlDatabase, owner: string): Promise<ScannedDeck[]> {
+async function scanDecks(
+  db: SqlDatabase,
+  owner: string,
+  book: ReviewBook,
+): Promise<ScannedDeck[]> {
   const [notes, states] = await Promise.all([
     cardNotes(db, owner),
     cardStates(db, owner),
@@ -110,6 +120,7 @@ async function scanDecks(db: SqlDatabase, owner: string): Promise<ScannedDeck[]>
       noteId: note.id,
       noteTitle: note.title,
       subjectId: note.subject_id,
+      book,
       cards,
     })
   }
@@ -138,6 +149,8 @@ function deckCounts(deck: ScannedDeck, today: string): DeckCounts {
       noteId: card.noteId,
       noteTitle: card.noteTitle,
       subjectId: card.subjectId,
+      notebookId: deck.book.id,
+      notebookName: deck.book.name,
       key: card.key,
       question: card.question,
       answer: card.answer,
@@ -186,8 +199,9 @@ export async function reviewQueue(
   today: string,
   limit = 40,
   noteId?: string,
+  book: ReviewBook = { id: '', name: '' },
 ): Promise<{ cards: ReviewCard[]; summary: ReviewSummary }> {
-  const decks = (await scanDecks(db, owner)).filter(
+  const decks = (await scanDecks(db, owner, book)).filter(
     (deck) => !noteId || deck.noteId === noteId,
   )
 
@@ -225,6 +239,61 @@ export async function reviewQueue(
 }
 
 /**
+ * Today's queue read across every notebook, so a deck in a book you are not
+ * looking at still comes up. Each card names the notebook it lives in, and the
+ * order is the same one a single notebook's queue uses.
+ */
+export async function reviewAcross(
+  db: SqlDatabase,
+  books: ReviewBook[],
+  today: string,
+  limit = 40,
+  noteId?: string,
+): Promise<{ cards: ReviewCard[]; summary: ReviewSummary }> {
+  const due: ReviewCard[] = []
+  const fresh: ReviewCard[] = []
+  let dueCount = 0
+  let freshCount = 0
+  let total = 0
+  let nextDue = ''
+
+  for (const book of books) {
+    const queue = await reviewQueue(
+      db,
+      scopedOwner(book.id),
+      today,
+      Number.MAX_SAFE_INTEGER,
+      noteId,
+      book,
+    )
+    for (const card of queue.cards) (card.fresh ? fresh : due).push(card)
+    dueCount += queue.summary.due
+    freshCount += queue.summary.fresh
+    total += queue.summary.total
+    if (queue.summary.nextDue && (!nextDue || queue.summary.nextDue < nextDue))
+      nextDue = queue.summary.nextDue
+  }
+
+  due.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.ease - b.ease)
+  fresh.sort(
+    (a, b) =>
+      a.notebookName.localeCompare(b.notebookName) ||
+      a.noteTitle.localeCompare(b.noteTitle) ||
+      a.question.localeCompare(b.question),
+  )
+
+  return {
+    cards: [...due, ...fresh].slice(0, limit),
+    summary: {
+      due: dueCount,
+      fresh: freshCount,
+      total,
+      nextDue,
+    },
+  }
+}
+
+/**
  * Every deck with the counts the daily queue is drawn from: the cards waiting,
  * the cards still new, and the whole deck. The decks with the most to hand out
  * come first, so the queue's source is visible at a glance.
@@ -234,18 +303,20 @@ export async function reviewDecks(
   owner: string,
   today: string,
 ): Promise<ReviewDeck[]> {
-  const decks = (await scanDecks(db, owner)).map((deck) => {
-    const counts = deckCounts(deck, today)
-    return {
-      noteId: deck.noteId,
-      noteTitle: deck.noteTitle,
-      subjectId: deck.subjectId,
-      due: counts.due.length,
-      fresh: counts.fresh.length,
-      total: counts.total,
-      nextDue: counts.nextDue,
-    }
-  })
+  const decks = (await scanDecks(db, owner, { id: '', name: '' })).map(
+    (deck) => {
+      const counts = deckCounts(deck, today)
+      return {
+        noteId: deck.noteId,
+        noteTitle: deck.noteTitle,
+        subjectId: deck.subjectId,
+        due: counts.due.length,
+        fresh: counts.fresh.length,
+        total: counts.total,
+        nextDue: counts.nextDue,
+      }
+    },
+  )
 
   decks.sort(
     (a, b) =>
@@ -337,6 +408,19 @@ export async function reviewStats(
 export type GradeResult =
   | { ok: true; card: ReviewCard }
   | { ok: false; reason: 'note' | 'card' }
+
+/** The notebook a row's owner belongs to, named as the screen should show it. */
+async function bookOf(db: SqlDatabase, owner: string): Promise<ReviewBook> {
+  // Notebook rows are owned by the whole app, not by one book's scope.
+  const id = owner.startsWith(`${BASE_OWNER}:`)
+    ? owner.slice(BASE_OWNER.length + 1)
+    : ''
+  const row = await db
+    .prepare('SELECT id, name FROM notebooks WHERE id = ?')
+    .bind(id)
+    .first<{ id: string; name: string }>()
+  return row ? { id: row.id, name: row.name } : { id: '', name: '' }
+}
 
 /** Stores one answer and returns the card with its new due date. */
 export async function gradeCard(
@@ -451,12 +535,15 @@ export async function gradeCard(
       .bind(owner, noteId, key, result, today, reviewedAt),
   ])
 
+  const book = await bookOf(db, owner)
   return {
     ok: true,
     card: {
       noteId,
       noteTitle: note.title,
       subjectId: note.subject_id,
+      notebookId: book.id,
+      notebookName: book.name,
       key,
       question: card.question,
       answer: card.answer,
@@ -486,62 +573,115 @@ type UndoRow = {
   prev_reviewed_at: number
 }
 
+/** The saved answer waiting to be taken back, newest across the notebooks. */
+async function pendingUndo(
+  db: SqlDatabase,
+  owners: string[],
+): Promise<(UndoRow & { owner_sub: string }) | null> {
+  let newest: (UndoRow & { owner_sub: string }) | null = null
+  for (const owner of owners) {
+    const row = await db
+      .prepare(
+        `SELECT owner_sub, note_id, card_key, result, day, reviewed_at, had_before,
+           due_date, interval_days, ease, lapses, last_result, prev_reviewed_at
+         FROM review_undo WHERE owner_sub = ?`,
+      )
+      .bind(owner)
+      .first<UndoRow & { owner_sub: string }>()
+    if (row && (!newest || row.reviewed_at > newest.reviewed_at)) newest = row
+  }
+  return newest
+}
+
+/** The newest answer in the history, whichever notebook it was given in. */
+async function latestAnswer(db: SqlDatabase, owners: string[]): Promise<number> {
+  let latest = 0
+  for (const owner of owners) {
+    const row = await db
+      .prepare('SELECT MAX(reviewed_at) AS latest FROM review_log WHERE owner_sub = ?')
+      .bind(owner)
+      .first<{ latest: number | null }>()
+    latest = Math.max(latest, row?.latest ?? 0)
+  }
+  return latest
+}
+
 /**
  * Whether the screen should offer to take the last answer back: there is a
- * saved answer, it is still the newest one in the history, and — when a deck
- * is open — it belongs to that deck rather than another one.
+ * saved answer across the given notebooks, it is still the newest one in their
+ * history, and — when a deck is open — it belongs to that deck rather than
+ * another one.
  */
+async function undoAvailableFor(
+  db: SqlDatabase,
+  owners: string[],
+  noteId?: string,
+): Promise<boolean> {
+  const undo = await pendingUndo(db, owners)
+  if (!undo) return false
+  if (noteId && undo.note_id !== noteId) return false
+  return (await latestAnswer(db, owners)) === undo.reviewed_at
+}
+
 export async function undoAvailable(
   db: SqlDatabase,
   owner: string,
   noteId?: string,
 ): Promise<boolean> {
-  const row = await db
-    .prepare(
-      `SELECT u.note_id AS note_id, u.reviewed_at AS reviewed_at,
-         (SELECT MAX(reviewed_at) FROM review_log WHERE owner_sub = u.owner_sub) AS latest
-       FROM review_undo u WHERE u.owner_sub = ?`,
-    )
-    .bind(owner)
-    .first<{ note_id: string; reviewed_at: number; latest: number | null }>()
-  if (!row) return false
-  if (noteId && row.note_id !== noteId) return false
-  return row.latest === row.reviewed_at
+  return undoAvailableFor(db, [owner], noteId)
+}
+
+/** The same, for a queue that draws cards from every notebook. */
+export async function undoAvailableAcross(
+  db: SqlDatabase,
+  owners: string[],
+  noteId?: string,
+): Promise<boolean> {
+  return undoAvailableFor(db, owners, noteId)
 }
 
 export type UndoResult =
   | { ok: true; card: ReviewCard }
   | { ok: false; reason: 'nothing' | 'stale' | 'note' | 'card' }
 
-/**
- * Takes back the answer given last: the card returns to the date, ease and
- * misses it had, and the answer leaves the history, so the streak, the recall
- * share and the queue all read as if it never happened.
- */
+/** Takes back the answer given last in one notebook. */
 export async function undoLastReview(
   db: SqlDatabase,
   owner: string,
   today: string,
 ): Promise<UndoResult> {
-  const undo = await db
-    .prepare(
-      `SELECT note_id, card_key, result, day, reviewed_at, had_before, due_date,
-         interval_days, ease, lapses, last_result, prev_reviewed_at
-       FROM review_undo WHERE owner_sub = ?`,
-    )
-    .bind(owner)
-    .first<UndoRow>()
+  return undoFor(db, [owner], today)
+}
+
+/** Takes back the newest answer across every notebook a queue draws from. */
+export async function undoLastReviewAcross(
+  db: SqlDatabase,
+  owners: string[],
+  today: string,
+): Promise<UndoResult> {
+  return undoFor(db, owners, today)
+}
+
+/**
+ * Takes back the answer given last: the card returns to the date, ease and
+ * misses it had, and the answer leaves the history, so the streak, the recall
+ * share and the queue all read as if it never happened.
+ */
+async function undoFor(
+  db: SqlDatabase,
+  owners: string[],
+  today: string,
+): Promise<UndoResult> {
+  const undo = await pendingUndo(db, owners)
   if (!undo) return { ok: false, reason: 'nothing' }
+  const owner = undo.owner_sub
 
   const clear = () =>
     db.prepare('DELETE FROM review_undo WHERE owner_sub = ?').bind(owner).run()
 
-  const latest = await db
-    .prepare('SELECT MAX(reviewed_at) AS latest FROM review_log WHERE owner_sub = ?')
-    .bind(owner)
-    .first<{ latest: number | null }>()
+  const latest = await latestAnswer(db, owners)
   // Something was answered after this card, so the step back would be a lie.
-  if ((latest?.latest ?? 0) !== undo.reviewed_at) {
+  if (latest !== undo.reviewed_at) {
     await clear()
     return { ok: false, reason: 'stale' }
   }
@@ -609,12 +749,15 @@ export async function undoLastReview(
   await db.batch(statements)
 
   const before = undo.had_before === 1
+  const book = await bookOf(db, owner)
   return {
     ok: true,
     card: {
       noteId: undo.note_id,
       noteTitle: note.title,
       subjectId: note.subject_id,
+      notebookId: book.id,
+      notebookName: book.name,
       key: undo.card_key,
       question: card.question,
       answer: card.answer,

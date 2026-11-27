@@ -190,6 +190,9 @@ export type ReviewCard = {
   noteId: string
   noteTitle: string
   subjectId: string | null
+  /** The notebook the deck lives in: the queue draws from every book. */
+  notebookId: string
+  notebookName: string
   /** A stable handle for the card inside its deck. */
   key: string
   question: string

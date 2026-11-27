@@ -219,6 +219,10 @@ press the button on Today — and Studydeck shows the cards due today: the ones
 you have never seen, then the ones you missed, ordered by how long they have
 waited.
 
+Every notebook feeds that queue, so a deck in a book you are not looking at
+still comes up; each card names the notebook it came from, and the total on
+Review, on Today, on the rail badge and in the tab title counts them all.
+
 Read the question, answer it out loud, press **Show answer**, then pick one of
 four answers. Space or Enter reveals; `1` to `4` answer. Picked the wrong one?
 **Undo last answer**, above the queue, puts the card back on the date, ease and

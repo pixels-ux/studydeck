@@ -260,7 +260,7 @@ export default function Review({
       <span className="week-label">
         {view === 'decks'
           ? decks
-            ? `${decks.length} ${decks.length === 1 ? 'deck' : 'decks'} · ${deckDue} due today`
+            ? `${decks.length} ${decks.length === 1 ? 'deck' : 'decks'} · ${deckDue} due in this notebook`
             : 'Reading your decks…'
           : queue
             ? `${queue.summary.total} ${queue.summary.total === 1 ? 'card' : 'cards'} in all · ${dueToday} due today`
@@ -517,7 +517,15 @@ export default function Review({
       {viewBar}
       <section className="card review-head">
         <div>
-          <p className="eyebrow">{subjectName(card.subjectId)}</p>
+          <p className="eyebrow">
+            {data.notebooks.length > 1
+              ? `${card.notebookName}${
+                  card.notebookId === data.notebookId
+                    ? ` · ${subjectName(card.subjectId)}`
+                    : ''
+                }`
+              : subjectName(card.subjectId)}
+          </p>
           <h3>{card.noteTitle.replace(/^Flashcards · /, '')}</h3>
         </div>
         <div className="review-stats">
@@ -528,7 +536,8 @@ export default function Review({
             <strong>{cards.length - index}</strong> left today
           </span>
           <span>
-            <strong>{queue.summary.total}</strong> in the deck
+            <strong>{queue.summary.total}</strong>{' '}
+            {deckId ? 'in this deck' : 'cards in all'}
           </span>
         </div>
       </section>

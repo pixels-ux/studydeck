@@ -404,6 +404,95 @@ test('one deck can be reviewed on its own, counted the same way as the list', as
   expect(missing.cards).toHaveLength(0)
 })
 
+/** One request addressed to a particular notebook, as the rail sends it. */
+const inBook = (
+  app: ReturnType<typeof createApp>,
+  notebook: string,
+  path: string,
+  method = 'GET',
+  body?: unknown,
+) =>
+  app.request(`http://localhost${path}`, {
+    method,
+    headers: {
+      Origin: 'http://localhost',
+      'Content-Type': 'application/json',
+      'x-notebook': notebook,
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+
+test('the queue counts and names cards from every notebook', async () => {
+  const app = createApp(openDatabase(':memory:'), {})
+  const data = (await (await call(app, '/api/data')).json()) as WorkspaceData
+  const home = data.notebookId
+  const made = (await (
+    await call(app, '/api/notebooks', 'POST', { name: 'Biology' })
+  ).json()) as { notebook: { id: string } }
+  const biology = made.notebook.id
+
+  const add = async (notebook: string, title: string, body: string) => {
+    const saved = await inBook(app, notebook, '/api/notes', 'POST', {
+      subjectId: null,
+      title,
+      body,
+    })
+    return ((await saved.json()) as { note: { id: string } }).note
+  }
+  await add(home, 'Flashcards · Light', deck)
+  const cells = await add(
+    biology,
+    'Flashcards · Cells',
+    ['Q: What is a cell?', 'A: The unit of life.'].join('\n'),
+  )
+
+  // The cards of both books, each labelled with the book it lives in.
+  const queue = (await (await call(app, '/api/review')).json()) as {
+    cards: ReviewCard[]
+    summary: ReviewSummary
+  }
+  expect(queue.summary).toEqual({ due: 0, fresh: 3, total: 3, nextDue: '' })
+  expect(queue.cards.map((card) => card.notebookName).sort()).toEqual([
+    'Biology',
+    'My notebook',
+    'My notebook',
+  ])
+  expect(queue.cards.find((card) => card.noteId === cells.id)).toMatchObject({
+    notebookId: biology,
+    notebookName: 'Biology',
+  })
+
+  // Today, the rail badge and the tab title read that same total.
+  const today = (await (await call(app, '/api/data')).json()) as WorkspaceData
+  expect(today.review).toMatchObject({ fresh: 3, total: 3 })
+
+  // A card from the other book can be answered from this screen.
+  const graded = await call(app, '/api/review', 'POST', {
+    noteId: cells.id,
+    cardKey: cardKey('What is a cell?'),
+    result: 'good',
+  })
+  expect(graded.status).toBe(200)
+  expect(((await graded.json()) as { card: ReviewCard }).card).toMatchObject({
+    notebookId: biology,
+    notebookName: 'Biology',
+  })
+
+  const after = (await (await call(app, '/api/review')).json()) as {
+    summary: ReviewSummary
+    undo: boolean
+  }
+  expect(after.summary).toMatchObject({ fresh: 2, total: 3 })
+  expect(after.undo).toBe(true)
+
+  // One step back reaches into the other notebook too.
+  expect((await call(app, '/api/review/undo', 'POST')).status).toBe(200)
+  const again = (await (await call(app, '/api/review')).json()) as {
+    summary: ReviewSummary
+  }
+  expect(again.summary).toMatchObject({ fresh: 3, total: 3 })
+})
+
 test('deleting a deck deletes its history', async () => {
   const app = createApp(openDatabase(':memory:'), {})
   const saved = await call(app, '/api/notes', 'POST', {

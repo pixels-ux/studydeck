@@ -167,8 +167,11 @@ export async function writeBackup(
   return writeCopy(databasePath, body, keep)
 }
 
-/** One line for the Settings list: how much each copy holds. */
-function summarise(body: string): string {
+/**
+ * What the Settings list says about a copy: the notebooks in it, so two copies
+ * from the same afternoon can be told apart, and how much is inside them.
+ */
+function describe(body: string): { notebooks: string[]; summary: string } {
   try {
     const file = JSON.parse(body) as { notebooks?: Record<string, unknown>[] }
     const books = file.notebooks ?? []
@@ -183,9 +186,15 @@ function summarise(body: string): string {
     const parts = [`${books.length} notebook${books.length === 1 ? '' : 's'}`]
     if (notes) parts.push(`${notes} note${notes === 1 ? '' : 's'}`)
     if (tasks) parts.push(`${tasks} task${tasks === 1 ? '' : 's'}`)
-    return parts.join(' · ')
+    const notebooks = books.map((book) => {
+      const meta = book.notebook as { name?: unknown } | undefined
+      const name = typeof meta?.name === 'string' ? meta.name.trim() : ''
+      // An older copy has no notebook of its own: it went into the open one.
+      return name || 'An unnamed notebook'
+    })
+    return { notebooks, summary: parts.join(' · ') }
   } catch {
-    return 'A copy that could not be read'
+    return { notebooks: [], summary: 'A copy that could not be read' }
   }
 }
 
@@ -196,11 +205,13 @@ export function listBackups(databasePath: string): BackupEntry[] {
     .map((name) => {
       const file = join(backupFolder(databasePath), name)
       const info = statSync(file)
+      const { notebooks, summary } = describe(readFileSync(file, 'utf8'))
       return {
         name,
         writtenAt: info.mtimeMs,
         bytes: info.size,
-        summary: summarise(readFileSync(file, 'utf8')),
+        notebooks,
+        summary,
       }
     })
 }

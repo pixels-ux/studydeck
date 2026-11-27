@@ -208,11 +208,14 @@ test('Settings lists each copy with what it holds', async () => {
     details: '',
     done: false,
   })
+  // A second notebook, so the names are what tells two copies apart.
+  await call('/api/notebooks', 'POST', { name: 'Biology' })
   await writeBackup(path, read)
 
   const copies = listBackups(path)
   expect(copies).toHaveLength(1)
-  expect(copies[0]!.summary).toBe('1 notebook · 1 note · 1 task')
+  expect(copies[0]!.notebooks).toEqual(['My notebook', 'Biology'])
+  expect(copies[0]!.summary).toBe('2 notebooks · 1 note · 1 task')
   expect(copies[0]!.bytes).toBeGreaterThan(0)
   expect(copies[0]!.writtenAt).toBeGreaterThan(0)
 

@@ -3289,6 +3289,12 @@ a.btn {
   font-size: 12px;
 }
 
+.backup-books {
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
 .review-record {
   display: flex;
   flex-wrap: wrap;

@@ -21,6 +21,13 @@ function writtenAt(stamp: number): string {
   })
 }
 
+/** The notebooks in a copy, short enough to sit in one row. */
+function notebookNames(names: string[]): string {
+  return names.length <= 3
+    ? names.join(', ')
+    : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
+}
+
 function sizeOf(bytes: number): string {
   return bytes < 1024 * 1024
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -204,6 +211,11 @@ export default function Settings({
                 <li key={copy.name}>
                   <span className="backup-when">
                     <strong>{writtenAt(copy.writtenAt)}</strong>
+                    {copy.notebooks.length ? (
+                      <span className="backup-books">
+                        {notebookNames(copy.notebooks)}
+                      </span>
+                    ) : null}
                     <span className="muted">
                       {copy.summary} · {sizeOf(copy.bytes)}
                     </span>

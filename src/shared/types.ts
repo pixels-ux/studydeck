@@ -291,6 +291,8 @@ export type BackupEntry = {
   /** When the copy was written, in milliseconds. */
   writtenAt: number
   bytes: number
+  /** The names of the notebooks in it, in the order the copy holds them. */
+  notebooks: string[]
   /** What it holds, e.g. "2 notebooks · 14 notes". */
   summary: string
 }

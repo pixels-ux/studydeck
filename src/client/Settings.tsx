@@ -69,8 +69,24 @@ export default function Settings({
 
   async function restoreCopy(copy: BackupEntry) {
     const when = writtenAt(copy.writtenAt)
+    // Name the copy's notebooks, and anything here that it would drop.
+    const held = copy.notebooks.length
+      ? copy.notebooks.join(', ')
+      : 'no notebooks'
+    const inCopy = new Set(copy.notebooks.map((name) => name.toLowerCase()))
+    const removed = data.notebooks
+      .map((notebook) => notebook.name)
+      .filter((name) => !inCopy.has(name.toLowerCase()))
     const proceed = window.confirm(
-      `Put back the copy from ${when}?\n\nEvery notebook is replaced with what that copy holds. The workspace as it is now is kept as a new automatic copy first, so you can come back to it.`,
+      [
+        `Put back the copy from ${when}?`,
+        '',
+        `It holds: ${held}.`,
+        removed.length
+          ? `Not in it, so removed: ${removed.join(', ')}. Everything else is replaced with what the copy holds.`
+          : 'Every notebook here is replaced with what the copy holds.',
+        'The workspace as it is now is kept as a new automatic copy first, so you can come back to it.',
+      ].join('\n'),
     )
     if (!proceed) return
     setRestoring(copy.name)

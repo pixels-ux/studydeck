@@ -1,10 +1,13 @@
+import { useMemo } from 'react'
 import { unitsFor } from '../shared/curriculum'
 import type { Task } from '../shared/types'
 import type { Tab } from './Shell'
 import {
+  DAY_SHORT,
   daysBetween,
   fmtDate,
   fmtDateLong,
+  fmtDuration,
   fmtTime,
   greeting,
   minutesNow,
@@ -13,6 +16,7 @@ import {
 } from './dates'
 import DayCheckin from './DayCheckin'
 import SessionTimer from './SessionTimer'
+import { weekReview } from './weekReview'
 import { useWorkspace } from './workspace'
 
 function taskInput(task: Task, done: boolean) {
@@ -42,6 +46,19 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
   const revision = data.entries
     .filter((entry) => entry.plan === 'intensive' && entry.date === today)
     .sort((a, b) => a.startMin - b.startMin)
+
+  // The last seven finished evenings: what the plan asked for against the
+  // check-ins that were actually saved.
+  const week = useMemo(
+    () =>
+      weekReview({
+        entries: data.entries,
+        logs: data.days,
+        subjects: data.subjects,
+        today,
+      }),
+    [data.entries, data.days, data.subjects, today],
+  )
 
   const open = data.tasks.filter((task) => !task.done)
   const dueSoon = open
@@ -278,6 +295,121 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
           )}
         </section>
       </div>
+
+      <section className="card">
+        <div className="card-head">
+          <h3>Your week in review</h3>
+          <span className="count">
+            {week.loggedNights} of {week.nights.length} evenings checked in
+          </span>
+        </div>
+        {!week.plannedNights && !week.loggedNights ? (
+          <p className="empty-line">
+            No revision was planned in the last seven evenings and no check-in
+            was saved. Build a revision plan and check in your day, and this
+            compares the two.
+          </p>
+        ) : (
+          <>
+            <p className="muted">
+              {week.plannedNights
+                ? `${fmtDuration(week.plannedMinutes)} of revision was planned for ${week.plannedNights} evening${week.plannedNights === 1 ? '' : 's'}. You checked in on ${week.checkedInNights} of them.`
+                : 'Revision was planned, but not in the last seven evenings.'}
+            </p>
+            {week.skippedMinutes ? (
+              <p className="muted">
+                <strong>{fmtDuration(week.skippedMinutes)}</strong> of planned
+                study fell on evenings you never checked in
+                {week.worst ? (
+                  <>
+                    {' '}
+                    — mostly <strong>{week.worst.name}</strong>.
+                  </>
+                ) : (
+                  '.'
+                )}
+              </p>
+            ) : week.plannedNights ? (
+              <p className="muted">
+                Nothing was skipped: every evening with planned study was
+                checked in.
+              </p>
+            ) : null}
+            <ul className="agenda">
+              {week.nights.map((night) => (
+                <li key={night.date} className="agenda-row">
+                  <span className="agenda-time">
+                    {DAY_SHORT[dayIndexOf(night.date)]}
+                  </span>
+                  <span
+                    className="agenda-bar"
+                    style={{
+                      background: night.checkedIn
+                        ? '#3f6b52'
+                        : night.plannedMinutes
+                          ? '#b25b3a'
+                          : 'var(--line-strong)',
+                    }}
+                  />
+                  <span className="agenda-main">
+                    <strong>{fmtDate(night.date)}</strong>
+                    <span className="muted">
+                      {night.plannedMinutes
+                        ? `${fmtDuration(night.plannedMinutes)} planned`
+                        : 'No revision planned'}
+                      {' · '}
+                      {night.checkedIn
+                        ? 'checked in'
+                        : night.plannedMinutes
+                          ? 'never checked in'
+                          : 'nothing to check'}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {week.subjects.length ? (
+              <>
+                <div className="card-head">
+                  <h4>Subjects you skipped</h4>
+                  <span className="count">{week.subjects.length}</span>
+                </div>
+                <ul className="health-rows">
+                  {week.subjects.map((row) => (
+                    <li
+                      key={row.subjectId ?? 'general'}
+                      className="health-row"
+                    >
+                      <span
+                        className="subject-dot"
+                        style={{ background: row.color }}
+                      />
+                      <div className="health-main">
+                        <div className="health-head">
+                          <strong>{row.name}</strong>
+                          <span className="health-chip is-behind">
+                            {fmtDuration(row.skippedMinutes)} skipped
+                          </span>
+                        </div>
+                        <span className="health-note">
+                          {row.eveningsPlanned} evening
+                          {row.eveningsPlanned === 1 ? '' : 's'} planned ·{' '}
+                          checked in on {row.eveningsCheckedIn}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <p className="fineprint">
+                  An evening only counts here when a check-in was saved for it,
+                  so a block left on the timetable from that night is treated as
+                  skipped. Tonight is not counted yet.
+                </p>
+              </>
+            ) : null}
+          </>
+        )}
+      </section>
 
       {examRows.length ? (
         <section className="card">

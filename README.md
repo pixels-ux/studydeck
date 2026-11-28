@@ -41,7 +41,8 @@ bun start         # http://localhost:3000
   hours you can study. A weekly timetable and an intensive revision plan are
   built from that.
 - **Today** — a check-in for the day just taught, tonight's plan, the classes
-  you have, the work that is due and the exams coming up.
+  you have, the work that is due, the exams coming up, and a week in review
+  that sets the study the timetable planned against the check-ins you saved.
 - **Subject health** — every subject ranked by how far behind it is: chapters
   left, work already overdue and the days to its exam, with tonight's first
   subject named at the top. It also prices every chapter left against the study
@@ -171,6 +172,15 @@ is reported instead of being squeezed in.
 
 **Save and build tonight's plan** stores the check-in and replaces only today's
 blocks in the timetable; other days are untouched.
+
+**Your week in review** at the bottom of Today compares the two records for the
+last seven finished evenings. It shows how many of them had revision planned
+and how many of those you checked in, how much of that planned study fell on
+evenings you never checked in, and which subjects keep landing there — worst
+first, with the evenings planned and how many you checked in. An evening whose
+check-in was never saved leaves its blocks on the timetable, so this reads that
+night as skipped; a saved check-in counts, whether or not revision was planned
+for it. Tonight is left out because it has not happened yet.
 
 Once the plan is saved, **Tonight's session** on Today runs it without opening
 anything else: the next study block is already chosen, with pause, resume, +5

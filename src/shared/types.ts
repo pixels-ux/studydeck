@@ -307,6 +307,8 @@ export type WorkspaceData = {
   subjects: Subject[]
   entries: Entry[]
   tasks: Task[]
+  /** Saved day check-ins, newest 60, which the week in review reads. */
+  days: DayLog[]
   notes: Note[]
   /** Saved prompts, ready to run over a note or a subject's material. */
   actions: AiAction[]

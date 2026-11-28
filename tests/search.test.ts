@@ -23,6 +23,7 @@ function workspace(overrides: Partial<WorkspaceData> = {}): WorkspaceData {
       },
     ],
     entries: [],
+    days: [],
     tasks: [
       {
         id: 't1',

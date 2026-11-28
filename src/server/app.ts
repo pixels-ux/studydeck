@@ -981,6 +981,7 @@ export function createApp(
       library,
       syllabus,
       profileRow,
+      dayLogs,
     ] = await Promise.all([
       db
         .prepare(
@@ -1036,6 +1037,13 @@ export function createApp(
         )
         .bind(BASE_OWNER)
         .first<ProfileRow>(),
+      // The last two months of check-ins, which the week in review reads.
+      db
+        .prepare(
+          `SELECT ${dayLogColumns} FROM day_logs WHERE owner_sub = ? ORDER BY date DESC LIMIT 60`,
+        )
+        .bind(owner)
+        .all<DayLogRow>(),
     ])
     const { provider } = await effectiveProvider(db, env, BASE_OWNER)
     const today = new Date().toISOString().slice(0, 10)
@@ -1057,6 +1065,7 @@ export function createApp(
         subjectId: row.subject_id,
         chapter: row.chapter,
       })),
+      days: dayLogs.results.map(mapDayLog),
       review: review.summary,
       reviewStats: stats,
       profile: profileRow ? mapProfile(profileRow) : null,

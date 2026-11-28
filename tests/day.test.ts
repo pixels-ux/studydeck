@@ -94,6 +94,11 @@ test('the day loads from the real timetable and saves what was taught', async ()
   expect(again.log.coaching?.startMin).toBe(16 * 60)
   expect(again.log.homework).toHaveLength(1)
 
+  // The workspace carries the saved check-ins, which the week review reads.
+  const workspace = (await (await call('/api/data')).json()) as WorkspaceData
+  expect(workspace.days.map((day) => day.date)).toContain(DATE)
+  expect(workspace.days[0]!.school[0]!.topic).toBe('Quadratic equations')
+
   for (const broken of [
     { ...checkIn, freeUntil: 9 * 60 },
     { ...checkIn, homework: [{ ...checkIn.homework[0], minutes: 700 }] },

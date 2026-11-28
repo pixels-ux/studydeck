@@ -47,7 +47,8 @@ bun start         # http://localhost:3000
   subject named at the top.
 - **Your day** — say what was actually covered in school and at coaching, what
   homework was set and how much, then get an evening plan with breaks sized to
-  the backlog. An AI brief comments on it if a key is connected.
+  the backlog. Leftover time goes to subjects in the same order as Subject
+  health. An AI brief comments on it if a key is connected.
 - **Timetable** — your week as a grid with rooms, teachers and subject colours,
   plus the revision plan. Study sessions never land on a school class, and the
   nearest exam gets the most time.
@@ -154,7 +155,8 @@ machine use `HOST=127.0.0.1 bun start` to keep it loopback-only.
    minutes, and a subject is never left with a five-minute scrap.
 4. **Tonight** — when you are free and when you stop. Studydeck lays out the
    evening: reviews first, then homework, then whatever time is left goes to the
-   subjects furthest behind.
+   subjects furthest behind — in the same order as Subject health, because both
+   read the same score.
 
 Breaks are not fixed. They start at 10 minutes and grow when there is overdue
 work, a lot of un-ticked chapters, 90 minutes or more of homework, or several
@@ -194,6 +196,10 @@ any overdue work or scores 1.5; **On pace** when a little is left but it fits;
 **Clear** when everything is ticked and nothing is late. Overdue work without a
 subject is counted in the total on this page but cannot lift a subject, so give
 a task a subject when you add it.
+
+The evening plan spends its leftover time on exactly these scores, so the first
+subject named here is the first one it schedules. A **Clear** subject scores
+nothing and gets no catch-up block.
 
 ## Library
 

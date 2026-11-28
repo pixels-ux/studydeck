@@ -6,7 +6,10 @@ import {
   planWithout,
   recoverableBlocks,
 } from '../src/client/dayPlan'
+import { subjectHealth } from '../src/client/subjectHealth'
 import { formatTimetable, parseTimetable } from '../src/client/timetableText'
+import { unitsFor } from '../src/shared/curriculum'
+import type { Subject, Task } from '../src/shared/types'
 
 const day = '2026-11-23'
 
@@ -16,6 +19,34 @@ const backlog = {
   nearestExamInDays: null,
   subjects: [],
 }
+
+const subject = (id: string, name: string, examDate = ''): Subject => ({
+  id,
+  name,
+  color: '#3f6b52',
+  teacher: '',
+  examDate,
+  createdAt: 0,
+})
+
+const task = (
+  id: string,
+  subjectId: string | null,
+  dueDate: string,
+  done = false,
+): Task => ({
+  id,
+  subjectId,
+  title: id,
+  dueDate,
+  priority: 'normal',
+  done,
+  details: '',
+  createdAt: 0,
+})
+
+const allTicked = (subjectId: string, name: string) =>
+  unitsFor(10, name).map((chapter) => ({ subjectId, chapter }))
 
 test('a typed timetable parses times, subjects and honest errors', () => {
   const parsed = parseTimetable(
@@ -252,38 +283,52 @@ test('an empty window produces no plan instead of a midnight session', () => {
   expect(plan.pulledIds).toEqual([])
 })
 
-test('backlog weighs overdue work, unread chapters and a near exam', () => {
-  const result = backlogOf({
-    tasks: [
-      { subjectId: 'm', dueDate: '2026-11-20', done: false },
-      { subjectId: 'm', dueDate: '2026-11-20', done: true },
-      { subjectId: 's', dueDate: '2026-11-18', done: false },
-      { subjectId: 's', dueDate: '2026-12-30', done: false },
+test('the plan weighs subjects by the health page score and order', () => {
+  const subjects = [
+    subject('m', 'Mathematics', '2026-11-26'),
+    subject('s', 'Science'),
+    subject('e', 'English'),
+  ]
+  const tasks = [
+    task('late', 's', '2026-11-18'),
+    task('done', 'm', '2026-11-10', true),
+  ]
+  const rows = subjectHealth({
+    subjects,
+    syllabus: [
+      // Maths still has six chapters left; science and English are all ticked.
+      ...unitsFor(10, 'Mathematics')
+        .slice(0, 8)
+        .map((chapter) => ({ subjectId: 'm', chapter })),
+      ...allTicked('s', 'Science'),
+      ...allTicked('e', 'English'),
     ],
+    tasks,
+    classLevel: 10,
     today: day,
-    subjects: [
-      {
-        id: 'm',
-        name: 'Mathematics',
-        examDate: '2026-11-26',
-        chaptersTotal: 10,
-        chaptersDone: 4,
-      },
-      {
-        id: 's',
-        name: 'Science',
-        examDate: '',
-        chaptersTotal: 8,
-        chaptersDone: 8,
-      },
-    ],
-    chaptersLeft: 6,
   })
-  expect(result.overdueTasks).toBe(2)
+  const result = backlogOf({ rows, tasks, today: day })
+
+  // Same order and same numbers as the page, so it cannot point elsewhere.
+  const behind = rows.filter((row) => row.status !== 'clear')
+  expect(result.subjects.map((item) => item.subjectId)).toEqual(
+    behind.map((row) => row.subject.id),
+  )
+  expect(result.subjects.map((item) => item.weight)).toEqual(
+    behind.map((row) => row.score),
+  )
+  expect(result.overdueTasks).toBe(1)
   expect(result.chaptersLeft).toBe(6)
   expect(result.nearestExamInDays).toBe(3)
-  // Maths is first: six chapters left and an exam in three days. Science has no
-  // chapters left, so only its one overdue task keeps it in the list.
-  expect(result.subjects[0]!.subjectId).toBe('m')
-  expect(result.subjects.find((subject) => subject.subjectId === 's')?.weight).toBe(2)
+
+  const plan = buildEveningPlan({
+    date: day,
+    freeFrom: 17 * 60,
+    freeUntil: 19 * 60,
+    homework: [],
+    covered: [],
+    backlog: result,
+  })
+  const catchUp = plan.entries.filter((entry) => entry.title.includes('catch up'))
+  expect(catchUp[0]!.subjectId).toBe(behind[0]!.subject.id)
 })

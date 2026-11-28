@@ -1,5 +1,6 @@
 import type { DayHomework, Entry, EntryInput } from '../shared/types'
 import { addDays, dayIndexOf } from './dates'
+import type { SubjectHealth } from './subjectHealth'
 
 /**
  * Builds the evening after a real school day.
@@ -331,63 +332,39 @@ export function planWithout(
     .map((date) => ({ date, entries: byDate.get(date) ?? [] }))
 }
 
-/** What is actually behind: overdue work, unread chapters and exam pressure. */
+/**
+ * What is actually behind: overdue work, unread chapters and exam pressure.
+ *
+ * The weight is the Subject health page's own score, taken from its rows, so
+ * the first subject it names and the plan's first free block always match.
+ * A clear subject scores nothing and is left out of the queue.
+ */
 export function backlogOf({
+  rows,
   tasks,
   today,
-  subjects,
-  chaptersLeft,
 }: {
+  rows: SubjectHealth[]
   tasks: { subjectId: string | null; dueDate: string; done: boolean }[]
   today: string
-  subjects: {
-    id: string
-    name: string
-    examDate: string
-    chaptersTotal: number
-    chaptersDone: number
-  }[]
-  chaptersLeft: number
 }): Backlog {
-  const overdue = tasks.filter((task) => !task.done && task.dueDate && task.dueDate < today)
-  const overdueBySubject = new Map<string, number>()
-  for (const task of overdue)
-    if (task.subjectId)
-      overdueBySubject.set(task.subjectId, (overdueBySubject.get(task.subjectId) ?? 0) + 1)
-
-  const examDays = subjects
-    .filter((subject) => subject.examDate && subject.examDate >= today)
-    .map((subject) =>
-      Math.round(
-        (new Date(`${subject.examDate}T00:00:00Z`).getTime() -
-          new Date(`${today}T00:00:00Z`).getTime()) /
-          86_400_000,
-      ),
-    )
-  const nearestExamInDays = examDays.length ? Math.min(...examDays) : null
-
-  const weighted = subjects
-    .map((subject) => {
-      const remaining = Math.max(0, subject.chaptersTotal - subject.chaptersDone)
-      const examSoon = subject.examDate
-        ? Math.max(0, 30 - Math.round((new Date(`${subject.examDate}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / 86_400_000))
-        : 0
-      return {
-        subjectId: subject.id,
-        name: subject.name,
-        weight:
-          remaining +
-          (overdueBySubject.get(subject.id) ?? 0) * 2 +
-          examSoon / 5,
-      }
-    })
-    .filter((subject) => subject.weight > 0)
-    .sort((a, b) => b.weight - a.weight)
+  const overdue = tasks.filter(
+    (task) => !task.done && task.dueDate && task.dueDate < today,
+  )
+  const examDays = rows
+    .map((row) => row.daysToExam)
+    .filter((days): days is number => days !== null)
 
   return {
     overdueTasks: overdue.length,
-    chaptersLeft,
-    nearestExamInDays,
-    subjects: weighted,
+    chaptersLeft: rows.reduce((sum, row) => sum + row.chaptersLeft, 0),
+    nearestExamInDays: examDays.length ? Math.min(...examDays) : null,
+    subjects: rows
+      .filter((row) => row.score > 0)
+      .map((row) => ({
+        subjectId: row.subject.id,
+        name: row.subject.name,
+        weight: row.score,
+      })),
   }
 }

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { unitsFor } from '../shared/curriculum'
 import type {
   DayCoaching,
   DayCovered,
@@ -26,6 +25,7 @@ import {
   type Backlog,
 } from './dayPlan'
 import Prose from './Prose'
+import { subjectHealth } from './subjectHealth'
 import { useWorkspace } from './workspace'
 
 type DayResponse = {
@@ -142,34 +142,24 @@ export default function DayCheckin() {
     }
   }, [today])
 
-  const backlog = useMemo<Backlog>(() => {
-    const classLevel = data.profile?.classLevel ?? 10
-    const ticked = new Set(
-      data.syllabus.map((tick) => `${tick.subjectId}::${tick.chapter}`),
-    )
-    const subjects = data.subjects.map((subject) => {
-      const chapters = unitsFor(classLevel, subject.name)
-      return {
-        id: subject.id,
-        name: subject.name,
-        examDate: subject.examDate,
-        chaptersTotal: chapters.length,
-        chaptersDone: chapters.filter((chapter) =>
-          ticked.has(`${subject.id}::${chapter}`),
-        ).length,
-      }
-    })
-    return backlogOf({
-      tasks: data.tasks,
-      today,
-      subjects,
-      chaptersLeft: subjects.reduce(
-        (sum, subject) =>
-          sum + Math.max(0, subject.chaptersTotal - subject.chaptersDone),
-        0,
-      ),
-    })
-  }, [data.profile, data.syllabus, data.subjects, data.tasks, today])
+  // The same rows the Subject health page shows, so the plan cannot disagree
+  // with it about which subject is furthest behind.
+  const health = useMemo(
+    () =>
+      subjectHealth({
+        subjects: data.subjects,
+        syllabus: data.syllabus,
+        tasks: data.tasks,
+        classLevel: data.profile?.classLevel ?? 10,
+        today,
+      }),
+    [data.profile, data.syllabus, data.subjects, data.tasks, today],
+  )
+
+  const backlog = useMemo<Backlog>(
+    () => backlogOf({ rows: health, tasks: data.tasks, today }),
+    [health, data.tasks, today],
+  )
 
   const covered = useMemo(
     () =>
@@ -719,6 +709,13 @@ export default function DayCheckin() {
                 ? ''
                 : ` · exam in ${backlog.nearestExamInDays} day${backlog.nearestExamInDays === 1 ? '' : 's'}`}
             </p>
+            {backlog.subjects.length ? (
+              <p className="fineprint">
+                Free time goes to <strong>{backlog.subjects[0]!.name}</strong>
+                {backlog.subjects[1] ? `, then ${backlog.subjects[1]!.name}` : ''}{' '}
+                — the same order as Subject health.
+              </p>
+            ) : null}
           </div>
 
           {plan.entries.length === 0 ? (

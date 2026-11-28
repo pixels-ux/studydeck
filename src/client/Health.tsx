@@ -34,10 +34,10 @@ export default function Health({
 
   const behind = rows.filter((row) => row.status === 'behind')
   const chaptersLeft = rows.reduce((sum, row) => sum + row.chaptersLeft, 0)
-  const overdueTasks = data.tasks.filter(
+  const overdueOpen = data.tasks.filter(
     (task) => !task.done && task.dueDate && task.dueDate < today,
   )
-  const looseOverdue = overdueTasks.filter((task) => !task.subjectId).length
+  const looseOverdue = overdueOpen.filter((task) => !task.subjectId).length
   const untracked = rows.filter((row) => !row.chaptersTotal)
   const nextExam = data.subjects
     .filter((subject) => subject.examDate && subject.examDate >= today)
@@ -76,11 +76,14 @@ export default function Health({
           ) : null}
         </h3>
         <p className="muted">
-          {focus
-            ? `This subject is furthest behind: ${healthNote(focus)}.${
-                then ? ` After that, ${then.subject.name}.` : ''
-              }`
-            : 'Every subject is either fully ticked or has nothing late. Use tonight for review, or tick off the next chapter early.'}
+          {focus ? (
+            <>
+              This subject is furthest behind: {healthNote(focus)}.
+              {then ? ` After that, ${then.subject.name}.` : ''}
+            </>
+          ) : (
+            'Every subject is either fully ticked or has nothing late. Use tonight for review, or tick off the next chapter early.'
+          )}
         </p>
         <div className="form-actions">
           <button
@@ -110,8 +113,8 @@ export default function Health({
           <span>chapters left</span>
         </div>
         <div className="stat">
-          <strong>{overdueTasks.length}</strong>
-          <span>{overdueTasks.length === 1 ? 'overdue task' : 'overdue tasks'}</span>
+          <strong>{overdueOpen.length}</strong>
+          <span>{overdueOpen.length === 1 ? 'overdue task' : 'overdue tasks'}</span>
         </div>
         <div className="stat">
           <strong>

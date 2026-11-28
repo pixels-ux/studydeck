@@ -3554,7 +3554,112 @@ export function createApp(
     return c.json({ error: 'Something went wrong. Please try again.' }, 500)
   })
   // Revision sheet per subject
-  app.get('/api/revision-sheet', (c) => c.json({ ok: true }))
+  app.get('/api/revision-sheet', async (c) => {
+    const owner = BASE_OWNER
+    const [subjects, syllabus, tasks, profileRow] = await Promise.all([
+      db
+        .prepare('SELECT id, name, color, teacher, exam_date, created_at FROM subjects WHERE owner_sub = ? ORDER BY created_at ASC')
+        .bind(owner)
+        .all<SubjectRow>(),
+      db
+        .prepare('SELECT subject_id, chapter, done_at FROM syllabus_progress WHERE owner_sub = ? ORDER BY done_at ASC')
+        .bind(owner)
+        .all<{ subject_id: string; chapter: string; done_at: number }>(),
+      db
+        .prepare(`SELECT ${taskColumns} FROM tasks WHERE owner_sub = ? ORDER BY done ASC, due_date ASC, created_at DESC LIMIT 300`)
+        .bind(owner)
+        .all<TaskRow>(),
+      db
+        .prepare('SELECT class_level, school_days, school_start, school_end, period_length, study_hours, setup_at FROM profiles WHERE owner_sub = ?')
+        .bind(BASE_OWNER)
+        .first<ProfileRow>(),
+    ])
+    const classLevel = profileRow?.class_level ?? 10
+    const today = new Date().toISOString().slice(0, 10)
+    // Cards whose last answer was Again, per subject.
+    const mistakeRows = await db
+      .prepare(`SELECT n.subject_id AS subject_id, COUNT(*) AS cards
+               FROM card_reviews r
+               JOIN study_notes n ON n.id = r.note_id AND n.owner_sub = r.owner_sub
+               WHERE r.owner_sub = ? AND r.lapses > 0 AND r.last_result = 'again'
+               GROUP BY n.subject_id`)
+      .bind(owner)
+      .all<{ subject_id: string | null; cards: number }>()
+    // Only subject-backed mistake counts lift a subject.
+    const mistakesBySubject = new Map<string, number>()
+    for (const row of mistakeRows.results) {
+      if (row.subject_id) mistakesBySubject.set(row.subject_id, row.cards)
+    }
+    const rows = subjects.results.map((subj) => {
+      const chapters = unitsFor(classLevel, subj.name)
+      const chapterSet = new Set(
+        syllabus.results
+          .filter((s) => s.subject_id === subj.id)
+          .map((s) => s.chapter),
+      )
+      const chaptersTotal = chapters.length
+      const chaptersDone = chapters.filter((ch) => chapterSet.has(ch)).length
+      const chaptersLeft = chaptersTotal - chaptersDone
+      // Exam distance.
+      let daysToExam: number | null = null
+      if (subj.exam_date && subj.exam_date >= today) {
+        const exam = new Date(subj.exam_date)
+        const todayDate = new Date(today)
+        daysToExam = Math.round((exam.getTime() - todayDate.getTime()) / 86_400_000)
+      }
+      const weeksUntil =
+        daysToExam === null ? 8 : Math.max(0.5, daysToExam / 7)
+      // Overdue tasks for this subject.
+      const overdueTasks = tasks.results.filter(
+        (t) =>
+          t.subject_id === subj.id &&
+          !t.done &&
+          t.due_date &&
+          t.due_date < today,
+      ).length
+      const mistakes = mistakesBySubject.get(subj.id) ?? 0
+      // Status mirrors subjectHealth logic.
+      let status: 'clear' | 'watch' | 'behind' = 'clear'
+      if (chaptersLeft > 0 || overdueTasks > 0 || mistakes > 0) {
+        if (overdueTasks >= 2) status = 'behind'
+        else if (daysToExam !== null && daysToExam <= 7 && chaptersLeft > 0) status = 'behind'
+        else if (chaptersLeft === 0 && overdueTasks === 0 && mistakes > 0) status = 'watch'
+        else status = 'watch'
+      }
+      // Recommended study hours per week: roughly chapters left over weeks,
+      // with a floor so a near-empty list still gets attention.
+      let revisionHoursPerWeek = 0
+      if (chaptersLeft > 0 && weeksUntil > 0 && daysToExam !== null && daysToExam > 0) {
+        revisionHoursPerWeek = Math.round(
+          (chaptersLeft / weeksUntil) * 0.5 * 10,
+        ) / 10
+      }
+      if (revisionHoursPerWeek > 0 && revisionHoursPerWeek < 1) revisionHoursPerWeek = 1
+      return {
+        subjectId: subj.id,
+        subjectName: subj.name,
+        chaptersTotal,
+        chaptersDone,
+        chaptersLeft,
+        examDate: subj.exam_date || '—',
+        daysToExam: daysToExam ?? '—',
+        weeksUntil: Math.round(weeksUntil * 10) / 10,
+        overdueTasks,
+        mistakes,
+        status,
+        revisionHoursPerWeek,
+      }
+    })
+    // Sort by status priority then by exam proximity.
+    const statusOrder: Record<string, number> = { behind: 0, watch: 1, clear: 2 }
+    rows.sort((a, b) =>
+      (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9) ||
+      (a.daysToExam === '—' ? 9999 : Number(a.daysToExam)) -
+        (b.daysToExam === '—' ? 9999 : Number(b.daysToExam)) ||
+      a.subjectName.localeCompare(b.subjectName),
+    )
+    return c.json({ rows, today })
+  })
 
   return app
 }

@@ -44,7 +44,9 @@ bun start         # http://localhost:3000
   you have, the work that is due and the exams coming up.
 - **Subject health** — every subject ranked by how far behind it is: chapters
   left, work already overdue and the days to its exam, with tonight's first
-  subject named at the top.
+  subject named at the top. It also prices every chapter left against the study
+  hours you set, so a workload that cannot be finished before exam week is
+  visible now instead of then.
 - **Your day** — say what was actually covered in school and at coaching, what
   homework was set and how much, then get an evening plan with breaks sized to
   the backlog. Leftover time goes to subjects in the same order as Subject
@@ -204,6 +206,27 @@ a task a subject when you add it.
 The evening plan spends its leftover time on exactly these scores, so the first
 subject named here is the first one it schedules. A **Clear** subject scores
 nothing and gets no catch-up block.
+
+### Does the workload fit?
+
+Below the totals, the page checks the whole load against the hours you set in
+class setup. Every chapter still to tick is counted at an hour of study, and
+each subject's chapters are spread over the weeks until its own exam — or over
+the next eight weeks when it has no date. That gives the hours a week the work
+needs, which is compared with the hours a week you actually have (your daily
+hours times seven):
+
+| Verdict | What it means |
+| --- | --- |
+| **Fits** | The chapters need no more than 85% of the hours you set, so a missed evening is survivable. |
+| **Tight** | They need most of your hours, up to 10% more than you have. One missed evening puts a subject behind. |
+| **Does not fit** | The chapters need more time than you set. Add study hours, or decide which chapters to skip while there is still time. |
+| **Nothing left** | Every chapter is ticked, so there is nothing to fit. |
+
+The card also names the subject that will slip first, with its chapters and the
+hours a week it needs on its own, and the first exam date the figures are
+measured against. It only reports: nothing is rescheduled or dropped for you,
+so the plan keeps the subjects you chose.
 
 The revision plan on Timetable shares each day's study budget the same way: an
 open subject's share is its score, so the one named here takes most of the day

@@ -45,7 +45,7 @@ const CRUNCH_DAYS = 7
 const round1 = (value: number) => Math.round(value * 10) / 10
 
 /** The weeks a subject has to finish in, never less than half a week. */
-const weeksUntil = (daysToExam: number | null) =>
+export const weeksUntil = (daysToExam: number | null) =>
   daysToExam === null ? HORIZON_WEEKS : Math.max(0.5, daysToExam / 7)
 
 /**

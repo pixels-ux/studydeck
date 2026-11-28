@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
-import { daysBetween, todayISO } from './dates'
+import { daysBetween, fmtDate, todayISO } from './dates'
 import { healthNote, subjectHealth, type HealthStatus } from './subjectHealth'
 import type { Tab } from './Shell'
 import { useWorkspace } from './workspace'
+import { workloadCheck, type WorkloadVerdict } from './workload'
 
 const STATUS: Record<HealthStatus, string> = {
   behind: 'Behind',
@@ -10,6 +11,23 @@ const STATUS: Record<HealthStatus, string> = {
   steady: 'On pace',
   clear: 'Clear',
 }
+
+const WORKLOAD: Record<
+  WorkloadVerdict,
+  { label: string; chip: HealthStatus }
+> = {
+  clear: { label: 'Nothing left', chip: 'clear' },
+  fits: { label: 'Fits', chip: 'steady' },
+  tight: { label: 'Tight', chip: 'watch' },
+  over: { label: 'Does not fit', chip: 'behind' },
+}
+
+/** Hours of study to the tenth, so a weekly figure is not rounded into a lie. */
+const hoursLabel = (minutes: number) =>
+  `${Math.round((minutes / 60) * 10) / 10} h`
+
+const weeksLabel = (weeks: number) =>
+  weeks < 1 ? 'under a week' : weeks === 1 ? '1 week' : `${weeks} weeks`
 
 export default function Health({
   onNavigate,
@@ -42,6 +60,14 @@ export default function Health({
   const nextExam = data.subjects
     .filter((subject) => subject.examDate && subject.examDate >= today)
     .sort((a, b) => a.examDate.localeCompare(b.examDate))[0]
+
+  // The hours set in class setup, read the same way the revision plan reads them.
+  const studyHours = data.profile?.studyHours ?? 3
+  const workload = useMemo(
+    () => workloadCheck({ health: rows, studyHours }),
+    [rows, studyHours],
+  )
+  const workloadStatus = WORKLOAD[workload.verdict]
 
   const waiting = rows.filter((row) => row.status !== 'clear')
   const focus = waiting[0] ?? null
@@ -123,6 +149,55 @@ export default function Health({
           <span>{nextExam ? `days to ${nextExam.name}` : 'no exams set'}</span>
         </div>
       </div>
+
+      <section className="card">
+        <div className="card-head">
+          <h3>Does the workload fit?</h3>
+          <span className={`health-chip is-${workloadStatus.chip}`}>
+            {workloadStatus.label}
+          </span>
+        </div>
+        <p className="muted">
+          {workload.chaptersLeft
+            ? `${workload.chaptersLeft} chapter${workload.chaptersLeft === 1 ? '' : 's'} left across your subjects, about ${hoursLabel(workload.hoursToCover * 60)} of study at an hour a chapter.`
+            : 'Every chapter is ticked off, so there is nothing left to fit before exam week.'}
+        </p>
+        {workload.chaptersLeft ? (
+          <>
+            <div className="stats">
+              <div className="stat">
+                <strong>{hoursLabel(workload.weeklyMinutes)}</strong>
+                <span>a week at {studyHours}h a day</span>
+              </div>
+              <div className="stat">
+                <strong>{hoursLabel(workload.neededWeeklyMinutes)}</strong>
+                <span>needed a week to finish</span>
+              </div>
+              <div className="stat">
+                <strong>{hoursLabel(Math.abs(workload.gapHours) * 60)}</strong>
+                <span>
+                  {workload.gapHours >= 0 ? 'spare each week' : 'short each week'}
+                </span>
+              </div>
+            </div>
+            <p className="muted">
+              {workload.verdict === 'over'
+                ? 'The chapters left need more than the hours you set. Add study time, or decide now which chapters to skip.'
+                : workload.verdict === 'tight'
+                  ? 'This only just fits, so one missed evening will put a subject behind.'
+                  : 'This fits inside the hours you set, with room for a missed day.'}
+              {workload.tightest
+                ? ` The first to slip is ${workload.tightest.name}: ${workload.tightest.chaptersLeft} chapter${workload.tightest.chaptersLeft === 1 ? '' : 's'} to finish in ${weeksLabel(workload.tightest.weeks)}, about ${hoursLabel(workload.tightest.weeklyMinutes)} a week on its own.`
+                : ''}
+            </p>
+            <p className="fineprint">
+              {workload.firstExamDate
+                ? `Measured against each subject\u2019s own exam date, the first on ${fmtDate(workload.firstExamDate)}.`
+                : 'No exam dates yet, so this is measured over the next eight weeks.'}
+            </p>
+          </>
+        ) : null}
+      </section>
 
       <section className="card">
         <div className="card-head">

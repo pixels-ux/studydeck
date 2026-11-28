@@ -1,9 +1,12 @@
 import type { Entry, EntryInput, Subject } from '../shared/types'
-import { addDays, dayIndexOf, daysBetween, minutesNow, todayISO } from './dates'
+import { addDays, dayIndexOf, minutesNow, todayISO } from './dates'
+import type { SubjectHealth } from './subjectHealth'
 
 export type PlanRequest = {
   subjects: Subject[]
   regular: Entry[]
+  /** The Subject health rows, whose score decides each subject's share. */
+  health: SubjectHealth[]
   from: string
   hoursPerDay: number
   includeWeekends: boolean
@@ -60,11 +63,13 @@ function sessionLengths(budget: number): number[] {
 /**
  * Builds a revision timetable from exam dates and the student's real week.
  * Sessions never land on a class or in hours that have already passed, and
- * the subject with the nearest exam gets the largest share of each day.
+ * each day's slots are shared out by the Subject health score, so a subject
+ * with nothing left waits while the one furthest behind takes most of the day.
  */
 export function buildRevisionPlan({
   subjects,
   regular,
+  health,
   from,
   hoursPerDay,
   includeWeekends,
@@ -94,12 +99,23 @@ export function buildRevisionPlan({
     room: '',
   }))
 
+  // The same score the health page sorts by and tonight's plan spends, so the
+  // three can never disagree about where the study should go.
+  const scoreOf = new Map(health.map((row) => [row.subject.id, row.score]))
+
   const budget = Math.round(Math.max(1, hoursPerDay) * 60)
   const today = todayISO()
   const now = minutesNow()
   let cursor = from
   let days = 0
   let guard = 0
+  // Minutes planned so far, and given to each subject, counted across the whole
+  // plan rather than per day: a subject with a small share would otherwise be
+  // starved by a day that holds only two sessions.
+  let planned = 0
+  const assigned = new Map<string, number>(
+    exams.map((subject) => [subject.id, 0]),
+  )
 
   while (cursor <= lastExam && guard < 120) {
     guard += 1
@@ -124,15 +140,18 @@ export function buildRevisionPlan({
       const slots = sessionLengths(budget)
       if (windows.length && slots.length) {
         days += 1
+        const weights = active.map((subject) =>
+          Math.max(0, scoreOf.get(subject.id) ?? 0),
+        )
+        const scored = weights.reduce((sum, value) => sum + value, 0)
+        // When nothing scores, every open subject gets an equal share.
         const weightOf = new Map(
-          active.map((subject) => [
+          active.map((subject, index) => [
             subject.id,
-            1 + 8 / Math.max(1, daysBetween(cursor, subject.examDate)),
+            scored > 0 ? weights[index]! : 1,
           ]),
         )
-        const totalWeight = [...weightOf.values()].reduce((sum, value) => sum + value, 0)
-        const assigned = new Map<string, number>(active.map((subject) => [subject.id, 0]))
-        let planned = 0
+        const totalWeight = scored > 0 ? scored : active.length
         let slotIndex = 0
 
         for (const window of windows) {
@@ -146,7 +165,7 @@ export function buildRevisionPlan({
             let bestDeficit = Number.NEGATIVE_INFINITY
             for (const subject of active) {
               const target =
-                (planned * (weightOf.get(subject.id) ?? 1)) / totalWeight
+                (planned * (weightOf.get(subject.id) ?? 0)) / Math.max(1, totalWeight)
               const deficit = target - (assigned.get(subject.id) ?? 0)
               if (deficit > bestDeficit) {
                 bestDeficit = deficit

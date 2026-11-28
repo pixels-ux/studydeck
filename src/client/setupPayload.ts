@@ -2,6 +2,7 @@ import { curriculumFor } from '../shared/curriculum'
 import type { Entry, EntryInput, SetupPayload, Subject } from '../shared/types'
 import { buildRevisionPlan } from './plan'
 import { examDatesFromTests } from './schoolTimetable'
+import { subjectHealth } from './subjectHealth'
 import type { TimetablePeriod } from './timetableText'
 
 export type CoachingDraft = {
@@ -107,9 +108,19 @@ export function buildSetupPayload(draft: SetupDraft): SetupPayload {
     ...entry,
     id: `r${index}`,
   }))
+  // Nothing is ticked or handed in yet, so the score weighs each chosen
+  // subject by its chapters and its exam date alone.
+  const health = subjectHealth({
+    subjects: planSubjects,
+    syllabus: [],
+    tasks: [],
+    classLevel: draft.classLevel,
+    today: draft.from,
+  })
   const revision = buildRevisionPlan({
     subjects: planSubjects,
     regular: planEntries,
+    health,
     from: draft.from,
     hoursPerDay: draft.studyHours,
     includeWeekends: true,

@@ -50,8 +50,9 @@ bun start         # http://localhost:3000
   the backlog. Leftover time goes to subjects in the same order as Subject
   health. An AI brief comments on it if a key is connected.
 - **Timetable** — your week as a grid with rooms, teachers and subject colours,
-  plus the revision plan. Study sessions never land on a school class, and the
-  nearest exam gets the most time.
+  plus the revision plan. Study sessions never land on a school class, and each
+  day is shared out by the same score Subject health ranks by, so the subject
+  furthest behind gets the most time.
 - **Work** — assignments with due dates and priorities, grouped into overdue,
   today and next week.
 - **Syllabus** — NCERT chapters ticked off per subject.
@@ -158,6 +159,9 @@ machine use `HOST=127.0.0.1 bun start` to keep it loopback-only.
    subjects furthest behind — in the same order as Subject health, because both
    read the same score.
 
+The revision plan on Timetable reads that score too, so the health page, this
+plan and the week's timetable can never disagree about where the study goes.
+
 Breaks are not fixed. They start at 10 minutes and grow when there is overdue
 work, a lot of un-ticked chapters, 90 minutes or more of homework, or several
 new topics in one day, up to 20 minutes. If homework does not fit the window it
@@ -200,6 +204,11 @@ a task a subject when you add it.
 The evening plan spends its leftover time on exactly these scores, so the first
 subject named here is the first one it schedules. A **Clear** subject scores
 nothing and gets no catch-up block.
+
+The revision plan on Timetable shares each day's study budget the same way: an
+open subject's share is its score, so the one named here takes most of the day
+and a clear subject waits until something is behind. When nothing scores at
+all, the open subjects divide the day equally.
 
 ## Library
 

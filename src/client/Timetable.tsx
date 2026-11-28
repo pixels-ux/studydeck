@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { Entry, EntryInput, EntryKind, Plan, Subject } from '../shared/types'
 import {
   DAY_SHORT,
@@ -13,6 +13,7 @@ import {
   weekStartOf,
 } from './dates'
 import { buildRevisionPlan } from './plan'
+import { subjectHealth } from './subjectHealth'
 import { useWorkspace } from './workspace'
 
 const DAY_START = 7 * 60
@@ -108,6 +109,18 @@ export default function Timetable() {
   }, [plan, weekOffset, data.entries.length])
 
   const today = todayISO()
+  // The same rows the Subject health page ranks, so the plan shares its score.
+  const health = useMemo(
+    () =>
+      subjectHealth({
+        subjects: data.subjects,
+        syllabus: data.syllabus,
+        tasks: data.tasks,
+        classLevel: data.profile?.classLevel ?? 10,
+        today,
+      }),
+    [data.profile, data.syllabus, data.subjects, data.tasks, today],
+  )
   const weekStart = addDays(weekStartOf(today), weekOffset * 7)
   const colorOf = (id: string | null) =>
     data.subjects.find((subject) => subject.id === id)?.color ?? '#5f6d5f'
@@ -152,6 +165,7 @@ export default function Timetable() {
       const result = buildRevisionPlan({
         subjects: data.subjects,
         regular: data.entries.filter((entry) => entry.plan === 'regular'),
+        health,
         from,
         hoursPerDay: hours,
         includeWeekends: weekends,
@@ -276,9 +290,10 @@ export default function Timetable() {
             </span>
           </div>
           <p className="muted builder-copy">
-            Studydeck reads your real week, skips your classes, and gives the
-            subject with the nearest exam the biggest share of each day. Every
-            block stays editable.
+            Studydeck reads your real week, skips your classes, and shares each
+            day out by the same score Subject health ranks by — so the subject
+            furthest behind gets the most time, and a subject with every chapter
+            ticked waits. Every block stays editable.
           </p>
           <div className="builder-grid">
             <label className="field">

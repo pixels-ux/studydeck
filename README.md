@@ -41,8 +41,9 @@ bun start         # http://localhost:3000
   hours you can study. A weekly timetable and an intensive revision plan are
   built from that.
 - **Today** — a check-in for the day just taught, tonight's plan, the classes
-  you have, the work that is due, the exams coming up, and a week in review
-  that sets the study the timetable planned against the check-ins you saved.
+  you have, the work that is due, the exams coming up, the chapters due for a
+  short revisit, and a week in review that sets the study the timetable planned
+  against the check-ins you saved.
 - **Subject health** — every subject ranked by how far behind it is: chapters
   left, work already overdue and the days to its exam, with tonight's first
   subject named at the top. It also prices every chapter left against the study
@@ -58,7 +59,8 @@ bun start         # http://localhost:3000
   furthest behind gets the most time.
 - **Work** — assignments with due dates and priorities, grouped into overdue,
   today and next week.
-- **Syllabus** — NCERT chapters ticked off per subject.
+- **Syllabus** — NCERT chapters ticked off per subject, with the date each one
+  was ticked, so a chapter comes back for a short revisit a week later.
 - **Notes** — private notes per subject.
 - **Search** — one box, opened with ⌘K or Ctrl+K, over this notebook's notes,
   material, work and chapters, plus the names of your other notebooks. Picking a
@@ -181,6 +183,14 @@ first, with the evenings planned and how many you checked in. An evening whose
 check-in was never saved leaves its blocks on the timetable, so this reads that
 night as skipped; a saved check-in counts, whether or not revision was planned
 for it. Tonight is left out because it has not happened yet.
+
+**Chapters to revisit** on Today lists the chapters ticked a week ago or more,
+nearest exam first. Ten minutes of recall each is the point: answer a question
+from memory, then press **Ticked again**, and the chapter clears for another
+week — which is how it keeps coming back until its exam without a queue of
+reviews to manage. A subject whose exam has already passed drops off the list,
+and ticking a chapter again from Syllabus starts the same clock. Every tick is
+stored with its time, so a restored backup keeps the dates you ticked.
 
 Once the plan is saved, **Tonight's session** on Today runs it without opening
 anything else: the next study block is already chosen, with pause, resume, +5

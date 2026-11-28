@@ -14,6 +14,7 @@ import {
   todayISO,
   dayIndexOf,
 } from './dates'
+import ChapterRevisits from './ChapterRevisits'
 import DayCheckin from './DayCheckin'
 import SessionTimer from './SessionTimer'
 import { weekReview } from './weekReview'
@@ -196,6 +197,8 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
       <DayCheckin />
 
       <SessionTimer />
+
+      <ChapterRevisits />
 
       <div className="stats">
         <div className="stat">

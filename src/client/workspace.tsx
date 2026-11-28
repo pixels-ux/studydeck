@@ -118,17 +118,22 @@ export function WorkspaceProvider({
 
   const toggleChapter = useCallback(
     async (subjectId: string, chapter: string, done: boolean) => {
-      await api<{ done: boolean }>('/api/syllabus', {
-        method: 'POST',
-        body: { subjectId, chapter, done },
-      })
+      const result = await api<{ done: boolean; tickedAt: number }>(
+        '/api/syllabus',
+        {
+          method: 'POST',
+          body: { subjectId, chapter, done },
+        },
+      )
       setData((current) => {
         const others = current.syllabus.filter(
           (tick) => !(tick.subjectId === subjectId && tick.chapter === chapter),
         )
         return {
           ...current,
-          syllabus: done ? [...others, { subjectId, chapter }] : others,
+          syllabus: done
+            ? [...others, { subjectId, chapter, tickedAt: result.tickedAt }]
+            : others,
         }
       })
     },

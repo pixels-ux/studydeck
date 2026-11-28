@@ -89,6 +89,8 @@ export type AiActionInput = {
 export type SyllabusTick = {
   subjectId: string
   chapter: string
+  /** When the chapter was last ticked, in ms; absent in older backups. */
+  tickedAt?: number
 }
 
 /** One piece of study material the student brings in: a chapter, an article. */

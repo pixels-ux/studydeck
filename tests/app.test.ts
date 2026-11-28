@@ -210,9 +210,16 @@ test('syllabus progress ticks, clears and ignores unknown subjects', async () =>
     done: true,
   })
   expect(tick.status).toBe(200)
-  expect((await data()).syllabus).toEqual([
-    { subjectId: subject.id, chapter: 'Light – Reflection and Refraction' },
-  ])
+  const first = (await tick.json()) as { tickedAt: number }
+  expect(typeof first.tickedAt).toBe('number')
+  const ticks = (await data()).syllabus
+  expect(ticks).toHaveLength(1)
+  expect(ticks[0]).toMatchObject({
+    subjectId: subject.id,
+    chapter: 'Light – Reflection and Refraction',
+  })
+  // The tick is stamped, so the chapter can come back for a revisit later.
+  expect(ticks[0]!.tickedAt).toBe(first.tickedAt)
 
   // Ticking twice keeps one row instead of piling up duplicates.
   expect(
@@ -224,7 +231,9 @@ test('syllabus progress ticks, clears and ignores unknown subjects', async () =>
       })
     ).status,
   ).toBe(200)
-  expect((await data()).syllabus).toHaveLength(1)
+  const again = (await data()).syllabus
+  expect(again).toHaveLength(1)
+  expect(again[0]!.tickedAt).toBeGreaterThanOrEqual(first.tickedAt)
 
   expect(
     (

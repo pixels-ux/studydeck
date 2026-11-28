@@ -796,7 +796,12 @@ function parseNotebookData(
     const chapter = clean(record.chapter, MAX_CHAPTER)
     if (!subjectId || !chapter)
       return { error: 'That backup has a syllabus tick Studydeck could not read.' }
-    syllabus.push({ subjectId, chapter, doneAt: stamp(record.doneAt) ?? Date.now() })
+    // Backups written before revisits carry doneAt; newer ones carry tickedAt.
+    syllabus.push({
+      subjectId,
+      chapter,
+      doneAt: stamp(record.tickedAt) ?? stamp(record.doneAt) ?? Date.now(),
+    })
   }
 
   // Version 2 files from before review scheduling simply have none of these.
@@ -1027,10 +1032,10 @@ export function createApp(
         .all<LibraryMessageRow>(),
       db
         .prepare(
-          'SELECT subject_id, chapter FROM syllabus_progress WHERE owner_sub = ? ORDER BY done_at ASC',
+          'SELECT subject_id, chapter, done_at FROM syllabus_progress WHERE owner_sub = ? ORDER BY done_at ASC',
         )
         .bind(owner)
-        .all<{ subject_id: string; chapter: string }>(),
+        .all<{ subject_id: string; chapter: string; done_at: number }>(),
       db
         .prepare(
           'SELECT class_level, school_days, school_start, school_end, period_length, study_hours, setup_at FROM profiles WHERE owner_sub = ?',
@@ -1064,6 +1069,7 @@ export function createApp(
       syllabus: syllabus.results.map((row) => ({
         subjectId: row.subject_id,
         chapter: row.chapter,
+        tickedAt: row.done_at,
       })),
       days: dayLogs.results.map(mapDayLog),
       review: review.summary,
@@ -2148,12 +2154,13 @@ export function createApp(
       .first()
     if (!owned) return c.json({ error: 'Subject not found.' }, 404)
     const done = body!.done === true
+    const now = Date.now()
     if (done) {
       await db
         .prepare(
           'INSERT INTO syllabus_progress (owner_sub, subject_id, chapter, done_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner_sub, subject_id, chapter) DO UPDATE SET done_at = excluded.done_at',
         )
-        .bind(owner, subjectId, chapter, Date.now())
+        .bind(owner, subjectId, chapter, now)
         .run()
     } else {
       await db
@@ -2163,7 +2170,8 @@ export function createApp(
         .bind(owner, subjectId, chapter)
         .run()
     }
-    return c.json({ subjectId, chapter, done })
+    // Ticking a chapter again restarts its revisit clock.
+    return c.json({ subjectId, chapter, done, tickedAt: done ? now : 0 })
   })
 
   app.post('/api/entries', async (c) => {

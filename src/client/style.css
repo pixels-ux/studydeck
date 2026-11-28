@@ -2980,6 +2980,118 @@ a.btn {
   }
 }
 
+/* Subject health: who is behind, and where tonight's study should go. */
+
+.health-lead .eyebrow {
+  margin: 0;
+}
+
+.health-lead h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 6px;
+  font-size: 22px;
+}
+
+.health-lead .muted {
+  max-width: 62ch;
+  margin: 0 0 12px;
+}
+
+.health-rows {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.health-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 13px 0;
+  border-top: 1px solid var(--line);
+}
+
+.health-row:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.health-row .subject-dot {
+  margin-top: 5px;
+}
+
+.health-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.health-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.health-head strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.health-note {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.health-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  overflow: hidden;
+}
+
+.health-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.health-chip {
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.health-chip.is-behind {
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+
+.health-chip.is-watch {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.health-chip.is-steady {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.health-chip.is-clear {
+  background: var(--green-soft);
+  color: var(--accent);
+}
+
 /* Revision: flashcards and slides */
 
 .revision-card {

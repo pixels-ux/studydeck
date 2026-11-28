@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import CommandSearch from './CommandSearch'
 import { fmtDateLong, todayISO } from './dates'
+import Health from './Health'
 import Home from './Home'
 import Library from './Library'
 import Notes from './Notes'
@@ -17,6 +18,7 @@ import { useWorkspace } from './workspace'
 
 export type Tab =
   | 'today'
+  | 'health'
   | 'review'
   | 'timetable'
   | 'work'
@@ -28,6 +30,11 @@ export type Tab =
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'today', label: 'Today', hint: 'Classes, work and exams' },
+  {
+    id: 'health',
+    label: 'Subject health',
+    hint: 'Where tonight’s study should go',
+  },
   { id: 'review', label: 'Review', hint: 'Flashcards due today' },
   { id: 'timetable', label: 'Timetable', hint: 'Your week and revision plan' },
   { id: 'work', label: 'Work', hint: 'Assignments and deadlines' },
@@ -318,6 +325,7 @@ export default function Shell() {
           ) : (
             <>
               {tab === 'today' && <Home onNavigate={go} />}
+              {tab === 'health' && <Health onNavigate={go} />}
               {tab === 'review' && <Review onNavigate={go} />}
               {tab === 'timetable' && <Timetable />}
               {tab === 'work' && (

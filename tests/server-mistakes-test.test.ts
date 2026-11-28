@@ -246,6 +246,98 @@ test('revision sheet reflects chapters, overdue, exam date, mistakes and status 
   expect(sheet.rows[0].subjectId).toBe(mathsId)
   expect(sheet.rows[1].status).toBe('watch')
   expect(sheet.rows[1].subjectId).toBe(physicsId)
-  expect(sheet.rows[2].status).toBe('clear')
+    expect(sheet.rows[2].status).toBe('clear')
   expect(sheet.rows[2].subjectId).toBe(chemistryId)
 })
+
+test('revision sheet marks a near-exam subject as behind and a chapters-left no-exam subject as watch', async () => {
+  const db = openDatabase(':memory:')
+  const app = createApp(db, {})
+
+  // Science at class 10 has NCERT chapters; leave one chapter unticked with a
+  // near exam (6 days away) so the endpoint flips it to behind via exam proximity.
+  const science = await call(app, '/api/subjects', 'POST', {
+    name: 'Science',
+    color: '#6a7f3f',
+    teacher: 'Ms. Rao',
+    examDate: '2026-12-04',
+  })
+  const scienceBody = await science.json()
+  expect(scienceBody.subject.name).toBe('Science')
+  const scienceId = scienceBody.subject.id
+
+  // Tick one class-10 Science chapter so the subject is partially done.
+  await call(app, '/api/syllabus', 'POST', {
+    subjectId: scienceId,
+    chapter: 'Chemical Reactions and Equations',
+    done: true,
+  })
+  const scienceUnits = unitsFor(10, 'Science')
+  const scienceDone = scienceUnits.filter((ch) =>
+    ch === 'Chemical Reactions and Equations',
+  ).length
+
+  // English at class 10 has NCERT chapters; no exam, one chapter ticked → watch.
+  const english = await call(app, '/api/subjects', 'POST', {
+    name: 'English',
+    color: '#40607a',
+    teacher: 'Mr. Iyer',
+    examDate: '',
+  })
+  const englishBody = await english.json()
+  expect(englishBody.subject.name).toBe('English')
+  const englishId = englishBody.subject.id
+
+  await call(app, '/api/syllabus', 'POST', {
+    subjectId: englishId,
+    chapter: 'A Letter to God',
+    done: true,
+  })
+  const englishUnits = unitsFor(10, 'English')
+  const englishDone = englishUnits.filter((ch) =>
+    ch === 'A Letter to God',
+  ).length
+
+  const response = await call(app, '/api/revision-sheet')
+  expect(response.status).toBe(200)
+
+  const sheet = (await response.json()) as {
+    rows: RevisionSheetRow[]
+    today: string
+  }
+  expect(sheet.rows).toHaveLength(2)
+
+  const scienceRow = sheet.rows.find((r) => r.subjectId === scienceId)!
+  const englishRow = sheet.rows.find((r) => r.subjectId === englishId)!
+
+  // Science: chapters left and a near exam → behind.
+  expect(scienceRow.chaptersTotal).toBe(scienceUnits.length)
+  expect(scienceRow.chaptersDone).toBe(scienceDone)
+  expect(scienceRow.chaptersLeft).toBe(scienceUnits.length - scienceDone)
+  expect(scienceRow.chaptersLeft).toBeGreaterThan(0)
+  expect(scienceRow.examDate).toBe('2026-12-04')
+  expect(typeof scienceRow.daysToExam).toBe('number')
+  expect(scienceRow.daysToExam).toBe(6)
+  expect(scienceRow.overdueTasks).toBe(0)
+  expect(scienceRow.mistakes).toBe(0)
+  expect(scienceRow.status).toBe('behind')
+
+  // English: chapters left, no exam, no overdue → watch.
+  expect(englishRow.chaptersTotal).toBe(englishUnits.length)
+  expect(englishRow.chaptersDone).toBe(englishDone)
+  expect(englishRow.chaptersLeft).toBe(englishUnits.length - englishDone)
+  expect(englishRow.chaptersLeft).toBeGreaterThan(0)
+  expect(englishRow.examDate).toBe('—')
+  expect(englishRow.daysToExam).toBe('—')
+  expect(englishRow.weeksUntil).toBe(8)
+  expect(englishRow.overdueTasks).toBe(0)
+  expect(englishRow.mistakes).toBe(0)
+  expect(englishRow.status).toBe('watch')
+
+  // Behind (near exam) comes before watch (chapters left, no exam).
+  expect(sheet.rows[0].status).toBe('behind')
+  expect(sheet.rows[0].subjectId).toBe(scienceId)
+  expect(sheet.rows[1].status).toBe('watch')
+  expect(sheet.rows[1].subjectId).toBe(englishId)
+})
+

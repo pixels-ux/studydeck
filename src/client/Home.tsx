@@ -20,6 +20,7 @@ import SessionTimer from './SessionTimer'
 import { weekReview } from './weekReview'
 import { useWorkspace } from './workspace'
 import type { RevisionSheetRow } from './revisionSheet.types'
+import type { RevisionSheetResponse } from './revisionSheet.types'
 
 function taskInput(task: Task, done: boolean) {
   return {
@@ -93,17 +94,18 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
 
   const [revisionSheetData, setRevisionSheetData] = useState<{
     rows: RevisionSheetRow[]
-    today: string
-  }>({ rows: [], today })
+  }>({ rows: [] })
   useEffect(() => {
     let active = true
     fetch('/api/revision-sheet')
       .then((r) => r.json())
-      .then((body) => {
+      .then((
+        body,
+      ) => {
         if (!active) return
-        const rows = (body?.rows ?? []) as RevisionSheetRow[]
-        if (rows.length)
-          setRevisionSheetData({ rows, today: body?.today ?? today })
+        const sheet = body as RevisionSheetResponse | null
+        const rows = sheet?.rows ?? []
+        if (rows.length) setRevisionSheetData({ rows })
       })
       .catch(() => {
         // Leave rows empty when the endpoint is unavailable.
@@ -449,11 +451,16 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
           <ul className="revision-rows">
             {revisionSheetData.rows.map((row) => (
               <li key={row.subjectId} className="revision-row">
-                <span className="subject-dot" style={{ background: row.subjectName ? (data.subjects.find((s) => s.id === row.subjectId)?.color ?? '#5f6d5f') : '#5f6d5f' }} />
+                <span
+                  className="subject-dot"
+                  style={{ background: data.subjects.find((s) => s.id === row.subjectId)?.color ?? '#5f6d5f' }}
+                />
                 <div className="revision-main">
                   <div className="revision-head">
                     <strong>{row.subjectName}</strong>
-                    <span className={`status-chip is-${row.status}`}>{row.status}</span>
+                    <span className="revision-status" style={{ background: row.status === 'behind' ? '#b25b3a' : row.status === 'watch' ? '#c98a2b' : '#3f6b52' }}>
+                      {row.status}
+                    </span>
                   </div>
                   <span className="muted">
                     {row.chaptersLeft === 0
@@ -470,9 +477,23 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
                   </span>
                 </div>
                 <span className="revision-bar">
-                  <span style={{ width: `${Math.min(100, Math.round(((row.chaptersTotal - row.chaptersLeft) / Math.max(1, row.chaptersTotal)) * 100))}%`, background: row.status === 'behind' ? '#b25b3a' : row.status === 'watch' ? '#c98a2b' : '#3f6b52' }} />
+                  <span
+                    style={{
+                      width: `${Math.min(100, Math.round((row.chaptersDone / Math.max(1, row.chaptersTotal)) * 100))}%`,
+                      background:
+                        row.status === 'behind'
+                          ? '#b25b3a'
+                          : row.status === 'watch'
+                            ? '#c98a2b'
+                            : '#3f6b52',
+                    }}
+                  />
                 </span>
-                <span className="revision-hours">{row.revisionHoursPerWeek > 0 ? `${row.revisionHoursPerWeek}h/wk` : '—'}</span>
+                <span className="revision-hours">
+                  {row.revisionHoursPerWeek > 0
+                    ? `${row.revisionHoursPerWeek}h/wk`
+                    : '—'}
+                </span>
               </li>
             ))}
           </ul>

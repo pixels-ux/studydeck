@@ -3555,7 +3555,9 @@ export function createApp(
   })
   // Revision sheet per subject
   app.get('/api/revision-sheet', async (c) => {
-    const owner = BASE_OWNER
+    // Subjects, syllabus, tasks and review cards are notebook-scoped; the
+    // class setup (profile) is per-computer, so it is read from BASE_OWNER.
+    const owner = c.get('owner')
     const [subjects, syllabus, tasks, profileRow] = await Promise.all([
       db
         .prepare('SELECT id, name, color, teacher, exam_date, created_at FROM subjects WHERE owner_sub = ? ORDER BY created_at ASC')

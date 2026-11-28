@@ -341,3 +341,89 @@ test('revision sheet marks a near-exam subject as behind and a chapters-left no-
   expect(sheet.rows[1].subjectId).toBe(englishId)
 })
 
+test('revision sheet computes a deterministic revision hours per week for a near-exam subject and zero for a no-exam subject', async () => {
+  const db = openDatabase(':memory:')
+  const app = createApp(db, {})
+
+  // Science at class 10: 13 NCERT chapters, 1 ticked, exam in 6 days.
+  const science = await call(app, '/api/subjects', 'POST', {
+    name: 'Science',
+    color: '#6a7f3f',
+    teacher: 'Ms. Rao',
+    examDate: '2026-12-04',
+  })
+  const scienceBody = await science.json()
+  expect(scienceBody.subject.name).toBe('Science')
+  const scienceId = scienceBody.subject.id
+
+  await call(app, '/api/syllabus', 'POST', {
+    subjectId: scienceId,
+    chapter: 'Chemical Reactions and Equations',
+    done: true,
+  })
+  const scienceUnits = unitsFor(10, 'Science')
+  const scienceDone = scienceUnits.filter((ch) =>
+    ch === 'Chemical Reactions and Equations',
+  ).length
+
+  const scienceResponse = await call(app, '/api/revision-sheet')
+  expect(scienceResponse.status).toBe(200)
+  const scienceSheet = (await scienceResponse.json()) as {
+    rows: RevisionSheetRow[]
+    today: string
+  }
+  const scienceRow = scienceSheet.rows.find((r) => r.subjectId === scienceId)!
+
+  // 12 chapters left, 6 days to exam: weeksUntil = max(0.5, 6/7).
+  // revisionHoursPerWeek = round((12 / weeksUntil) * 0.5 * 10) / 10 = 7.
+  expect(scienceRow.chaptersTotal).toBe(scienceUnits.length)
+  expect(scienceRow.chaptersDone).toBe(scienceDone)
+  expect(scienceRow.chaptersLeft).toBe(scienceUnits.length - scienceDone)
+  expect(scienceRow.chaptersLeft).toBeGreaterThan(0)
+  expect(scienceRow.examDate).toBe('2026-12-04')
+  expect(typeof scienceRow.daysToExam).toBe('number')
+  expect(scienceRow.daysToExam).toBe(6)
+  expect(scienceRow.status).toBe('behind')
+  expect(scienceRow.revisionHoursPerWeek).toBe(7)
+
+  // English at class 10: 18 NCERT chapters, 1 ticked, no exam.
+  const english = await call(app, '/api/subjects', 'POST', {
+    name: 'English',
+    color: '#40607a',
+    teacher: 'Mr. Iyer',
+    examDate: '',
+  })
+  const englishBody = await english.json()
+  expect(englishBody.subject.name).toBe('English')
+  const englishId = englishBody.subject.id
+
+  await call(app, '/api/syllabus', 'POST', {
+    subjectId: englishId,
+    chapter: 'A Letter to God',
+    done: true,
+  })
+  const englishUnits = unitsFor(10, 'English')
+  const englishDone = englishUnits.filter((ch) =>
+    ch === 'A Letter to God',
+  ).length
+
+  const englishResponse = await call(app, '/api/revision-sheet')
+  expect(englishResponse.status).toBe(200)
+  const englishSheet = (await englishResponse.json()) as {
+    rows: RevisionSheetRow[]
+    today: string
+  }
+  const englishRow = englishSheet.rows.find((r) => r.subjectId === englishId)!
+
+  // No exam → revisionHoursPerWeek stays 0 even with chapters left.
+  expect(englishRow.chaptersTotal).toBe(englishUnits.length)
+  expect(englishRow.chaptersDone).toBe(englishDone)
+  expect(englishRow.chaptersLeft).toBe(englishUnits.length - englishDone)
+  expect(englishRow.chaptersLeft).toBeGreaterThan(0)
+  expect(englishRow.examDate).toBe('—')
+  expect(englishRow.daysToExam).toBe('—')
+  expect(englishRow.status).toBe('watch')
+  expect(englishRow.revisionHoursPerWeek).toBe(0)
+})
+
+

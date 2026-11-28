@@ -3553,5 +3553,8 @@ export function createApp(
     console.error('Request failed', error)
     return c.json({ error: 'Something went wrong. Please try again.' }, 500)
   })
+  // Revision sheet per subject
+  app.get('/api/revision-sheet', (c) => c.json({ ok: true }))
+
   return app
 }

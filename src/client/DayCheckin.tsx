@@ -152,8 +152,9 @@ export default function DayCheckin() {
         tasks: data.tasks,
         classLevel: data.profile?.classLevel ?? 10,
         today,
+        mistakes: data.mistakes,
       }),
-    [data.profile, data.syllabus, data.subjects, data.tasks, today],
+    [data.profile, data.syllabus, data.subjects, data.tasks, data.mistakes, today],
   )
 
   const backlog = useMemo<Backlog>(

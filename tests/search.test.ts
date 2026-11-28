@@ -24,6 +24,7 @@ function workspace(overrides: Partial<WorkspaceData> = {}): WorkspaceData {
     ],
     entries: [],
     days: [],
+    mistakes: [],
     tasks: [
       {
         id: 't1',

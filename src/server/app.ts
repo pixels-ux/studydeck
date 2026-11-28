@@ -987,6 +987,7 @@ export function createApp(
       syllabus,
       profileRow,
       dayLogs,
+      mistakeRows,
     ] = await Promise.all([
       db
         .prepare(
@@ -1049,6 +1050,17 @@ export function createApp(
         )
         .bind(owner)
         .all<DayLogRow>(),
+      // Cards whose last answer was Again, per subject, for the behind-score.
+      db
+        .prepare(
+          `SELECT n.subject_id AS subject_id, COUNT(*) AS cards
+           FROM card_reviews r
+           JOIN study_notes n ON n.id = r.note_id AND n.owner_sub = r.owner_sub
+           WHERE r.owner_sub = ? AND r.lapses > 0 AND r.last_result = 'again'
+           GROUP BY n.subject_id`,
+        )
+        .bind(owner)
+        .all<{ subject_id: string | null; cards: number }>(),
     ])
     const { provider } = await effectiveProvider(db, env, BASE_OWNER)
     const today = new Date().toISOString().slice(0, 10)
@@ -1072,6 +1084,10 @@ export function createApp(
         tickedAt: row.done_at,
       })),
       days: dayLogs.results.map(mapDayLog),
+      mistakes: mistakeRows.results.map((row) => ({
+        subjectId: row.subject_id,
+        cards: row.cards,
+      })),
       review: review.summary,
       reviewStats: stats,
       profile: profileRow ? mapProfile(profileRow) : null,

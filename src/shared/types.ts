@@ -240,6 +240,12 @@ export type ReviewDeck = {
   nextDue: string
 }
 
+/** Flashcards whose last answer was Again, counted for one subject. */
+export type MistakeCount = {
+  subjectId: string | null
+  cards: number
+}
+
 /** How much review work is waiting, for Today and the rail. */
 export type ReviewSummary = {
   due: number
@@ -318,6 +324,8 @@ export type WorkspaceData = {
   syllabus: SyllabusTick[]
   /** Flashcards due today, and how many exist in the notebook. */
   review: ReviewSummary
+  /** Missed flashcards per subject, which the behind-score weighs. */
+  mistakes: MistakeCount[]
   /** The streak and recall record built from your answers. */
   reviewStats: ReviewStats
   /** Material the student added to the library. */

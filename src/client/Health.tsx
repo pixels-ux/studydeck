@@ -46,8 +46,9 @@ export default function Health({
         tasks: data.tasks,
         classLevel,
         today,
+        mistakes: data.mistakes,
       }),
-    [data.subjects, data.syllabus, data.tasks, classLevel, today],
+    [data.subjects, data.syllabus, data.tasks, data.mistakes, classLevel, today],
   )
 
   const behind = rows.filter((row) => row.status === 'behind')

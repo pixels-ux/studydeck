@@ -46,9 +46,9 @@ bun start         # http://localhost:3000
   against the check-ins you saved.
 - **Subject health** — every subject ranked by how far behind it is: chapters
   left, work already overdue and the days to its exam, with tonight's first
-  subject named at the top. It also prices every chapter left against the study
-  hours you set, so a workload that cannot be finished before exam week is
-  visible now instead of then.
+  subject named at the top, and the flashcards you keep missing. It also prices
+  every chapter left against the study hours you set, so a workload that cannot
+  be finished before exam week is visible now instead of then.
 - **Your day** — say what was actually covered in school and at coaching, what
   homework was set and how much, then get an evening plan with breaks sized to
   the backlog. Leftover time goes to subjects in the same order as Subject
@@ -56,7 +56,8 @@ bun start         # http://localhost:3000
 - **Timetable** — your week as a grid with rooms, teachers and subject colours,
   plus the revision plan. Study sessions never land on a school class, and each
   day is shared out by the same score Subject health ranks by, so the subject
-  furthest behind gets the most time.
+  furthest behind gets the most time — and that score counts the flashcards you
+  keep missing, so a subject that is not sticking keeps its share.
 - **Work** — assignments with due dates and priorities, grouped into overdue,
   today and next week.
 - **Syllabus** — NCERT chapters ticked off per subject, with the date each one
@@ -208,18 +209,23 @@ first block is not a guess. The top of the page names the subject to start with
 and why; the list below shows each one with its chapters ticked, its exam date
 and any work that is already late.
 
-One score decides the order, built from those three things:
+One score decides the order, built from these four things:
 
 - **Chapters left** against the time available: the chapters still to tick per
   week until the exam, or over the next eight weeks when no exam date is set.
 - **Overdue work** counts double, because a missed deadline is already late.
 - **A fortnight before the exam** adds three points: unfinished chapters at that
   distance are an emergency, not a pace.
+- **Flashcards answered Again** add half a point each, up to two. A deck that is
+  not sticking is a reason to spend time on the subject even when every chapter
+  is ticked, but a bad evening of cards cannot bury a near exam.
 
 A subject is **Behind** when it scores 4 or more, has two or more overdue tasks,
 or has chapters left inside the last week before its exam; **Watch** when it has
-any overdue work or scores 1.5; **On pace** when a little is left but it fits;
-**Clear** when everything is ticked and nothing is late. Overdue work without a
+any overdue work or scores 1.5 — which includes a subject with four or more
+missed cards and nothing else left; **On pace** when a little is left but it
+fits; **Clear** when everything is ticked, nothing is late and no card is
+waiting in Mistakes. Overdue work without a
 subject is counted in the total on this page but cannot lift a subject, so give
 a task a subject when you add it.
 
@@ -329,6 +335,8 @@ A card answered **Again** also lands in **Mistakes**: every notebook's missed
 cards, worst first, each with how often it has been missed and when it is next
 due. **Practise the worst twenty** runs them as a session even though their own
 dates are still ahead, and a card answered without a miss leaves the list.
+Missed cards also lift their subject's score on Subject health, so a deck that
+keeps coming back wrong pulls revision time towards that subject.
 
 A new card starts at one day and grows towards a year, so a deck you have not
 seen for a month does not dump every card on you at once. The queue is handed

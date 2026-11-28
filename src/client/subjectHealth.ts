@@ -1,15 +1,21 @@
 import { unitsFor } from '../shared/curriculum'
-import type { Subject, SyllabusTick, Task } from '../shared/types'
+import type {
+  MistakeCount,
+  Subject,
+  SyllabusTick,
+  Task,
+} from '../shared/types'
 import { daysBetween } from './dates'
 
 /**
  * How far behind each subject is, and so where tonight's study should go.
  *
- * Three things count: chapters still to tick, work that is already late, and
- * how little time is left before the exam. They are weighed into one score so
- * the order does not change from day to day. The Subject health page sorts by
- * that score and the evening plan spends its leftover time in the same order,
- * so the two can never point at different subjects.
+ * Four things count: chapters still to tick, work that is already late, how
+ * little time is left before the exam, and the flashcards whose last answer
+ * was Again. They are weighed into one score so the order does not change from
+ * day to day. The Subject health page sorts by that score, the evening plan
+ * spends its leftover time in the same order, and the revision plan shares each
+ * day by it, so none of them can point at different subjects.
  */
 
 export type HealthStatus = 'behind' | 'watch' | 'steady' | 'clear'
@@ -25,6 +31,8 @@ export type SubjectHealth = {
   pacePerWeek: number | null
   overdue: number
   openTasks: number
+  /** Flashcards whose last answer was Again. */
+  mistakes: number
   /** Higher means further behind. Shared with the evening plan. */
   score: number
   status: HealthStatus
@@ -34,6 +42,7 @@ type Weight = {
   chaptersLeft: number
   overdue: number
   daysToExam: number | null
+  mistakes?: number
 }
 
 /** With no exam date, a subject is measured against two months of work. */
@@ -41,6 +50,11 @@ const HORIZON_WEEKS = 8
 /** Inside a fortnight, unfinished chapters are an emergency, not a pace. */
 const SHORT_RUN_DAYS = 14
 const CRUNCH_DAYS = 7
+/** Half a point for a card answered Again, so a subject that is not sticking
+ * gets time even when its chapters are ticked — capped so a run of missed
+ * flashcards cannot bury the exam deadline. */
+const MISTAKE_POINTS = 0.5
+const MAX_MISTAKE_POINTS = 2
 
 const round1 = (value: number) => Math.round(value * 10) / 10
 
@@ -56,21 +70,29 @@ export function behindScore({
   chaptersLeft,
   overdue,
   daysToExam,
+  mistakes = 0,
 }: Weight): number {
   const crunch =
     daysToExam !== null && daysToExam <= SHORT_RUN_DAYS && chaptersLeft > 0
       ? 3
       : 0
-  return round1(chaptersLeft / weeksUntil(daysToExam) + overdue * 2 + crunch)
+  const missed = Math.min(
+    MAX_MISTAKE_POINTS,
+    Math.max(0, mistakes) * MISTAKE_POINTS,
+  )
+  return round1(
+    chaptersLeft / weeksUntil(daysToExam) + overdue * 2 + crunch + missed,
+  )
 }
 
 export function healthStatus({
   chaptersLeft,
   overdue,
   daysToExam,
+  mistakes = 0,
   score,
 }: Weight & { score: number }): HealthStatus {
-  if (!chaptersLeft && !overdue) return 'clear'
+  if (!chaptersLeft && !overdue && !mistakes) return 'clear'
   if (
     overdue >= 2 ||
     score >= 4 ||
@@ -88,15 +110,23 @@ export function subjectHealth({
   tasks,
   classLevel,
   today,
+  mistakes = [],
 }: {
   subjects: Subject[]
   syllabus: SyllabusTick[]
   tasks: Task[]
   classLevel: number
   today: string
+  /** Cards whose last answer was Again, per subject. */
+  mistakes?: MistakeCount[]
 }): SubjectHealth[] {
   const covered = new Set(
     syllabus.map((tick) => `${tick.subjectId}::${tick.chapter}`),
+  )
+  const missed = new Map(
+    mistakes
+      .filter((row) => row.subjectId)
+      .map((row) => [row.subjectId as string, row.cards]),
   )
 
   const rows = subjects.map((subject) => {
@@ -115,7 +145,12 @@ export function subjectHealth({
       (task) => task.subjectId === subject.id && !task.done,
     )
     const overdue = open.filter((task) => task.dueDate && task.dueDate < today)
-    const weight = { chaptersLeft, overdue: overdue.length, daysToExam }
+    const weight = {
+      chaptersLeft,
+      overdue: overdue.length,
+      daysToExam,
+      mistakes: missed.get(subject.id) ?? 0,
+    }
     const score = behindScore(weight)
 
     return {
@@ -128,6 +163,7 @@ export function subjectHealth({
         daysToExam === null ? null : round1(chaptersLeft / weeksUntil(daysToExam)),
       overdue: overdue.length,
       openTasks: open.length,
+      mistakes: weight.mistakes,
       score,
       status: healthStatus({ ...weight, score }),
     }
@@ -163,6 +199,9 @@ export function healthNote(row: SubjectHealth): string {
 
   if (row.overdue === 1) parts.push('1 overdue task')
   else if (row.overdue > 1) parts.push(`${row.overdue} overdue tasks`)
+
+  if (row.mistakes === 1) parts.push('1 missed card')
+  else if (row.mistakes > 1) parts.push(`${row.mistakes} missed cards`)
 
   if (row.pacePerWeek !== null && row.chaptersLeft > 0)
     parts.push(`${paceText(row.pacePerWeek)} to finish`)

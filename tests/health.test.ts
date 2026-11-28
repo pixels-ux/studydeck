@@ -1,7 +1,11 @@
 import { expect, test } from 'bun:test'
 import { unitsFor } from '../src/shared/curriculum.ts'
 import type { Subject, SyllabusTick, Task } from '../src/shared/types'
-import { healthNote, subjectHealth } from '../src/client/subjectHealth.ts'
+import {
+  behindScore,
+  healthNote,
+  subjectHealth,
+} from '../src/client/subjectHealth.ts'
 
 const TODAY = '2026-11-28'
 
@@ -126,6 +130,39 @@ test('a past exam date stops counting down but still shows in the note', () => {
   expect(healthNote(rows[0]!)).toBe(
     'All 14 chapters ticked · exam date has passed',
   )
+})
+
+test('a card answered Again lifts a subject whose chapters are all ticked', () => {
+  const rows = subjectHealth({
+    subjects: [subject('math', 'Mathematics', '2027-02-01')],
+    syllabus: allTicked('math', 'Mathematics'),
+    tasks: [],
+    classLevel: 10,
+    today: TODAY,
+    mistakes: [{ subjectId: 'math', cards: 4 }],
+  })
+  expect(rows[0]!.chaptersLeft).toBe(0)
+  expect(rows[0]!.mistakes).toBe(4)
+  expect(rows[0]!.score).toBe(2)
+  // Nothing left on paper, but the cards are not sticking, so not clear.
+  expect(rows[0]!.status).toBe('watch')
+  expect(healthNote(rows[0]!)).toBe(
+    'All 14 chapters ticked · exam in 65 days · 4 missed cards',
+  )
+})
+
+test('missed cards are worth half a point each, capped at two', () => {
+  expect(behindScore({ chaptersLeft: 0, overdue: 0, daysToExam: null })).toBe(0)
+  expect(
+    behindScore({ chaptersLeft: 0, overdue: 0, daysToExam: null, mistakes: 1 }),
+  ).toBe(0.5)
+  expect(
+    behindScore({ chaptersLeft: 0, overdue: 0, daysToExam: null, mistakes: 4 }),
+  ).toBe(2)
+  // A deck answered wrong all evening cannot bury the exam deadline.
+  expect(
+    behindScore({ chaptersLeft: 0, overdue: 0, daysToExam: null, mistakes: 40 }),
+  ).toBe(2)
 })
 
 test('a subject without a chapter list is counted by its work alone', () => {

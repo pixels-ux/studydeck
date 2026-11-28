@@ -30,8 +30,16 @@ const healthFor = (
   list: Subject[],
   syllabus: SyllabusTick[] = [],
   at = today,
+  mistakes: { subjectId: string; cards: number }[] = [],
 ) =>
-  subjectHealth({ subjects: list, syllabus, tasks: [], classLevel: 10, today: at })
+  subjectHealth({
+    subjects: list,
+    syllabus,
+    tasks: [],
+    classLevel: 10,
+    today: at,
+    mistakes,
+  })
 
 test('study sessions never land on a school class or in already-passed hours', () => {
   const plan = buildRevisionPlan({
@@ -157,4 +165,31 @@ test('the plan shares the week out by the health page score, not exam order alon
   // than starved by the two sessions a day holds.
   expect(minutes('sci')).toBeGreaterThan(minutes('math'))
   expect(minutes('math')).toBeGreaterThan(0)
+})
+
+test('missed flashcards give a subject the slots when its chapters are ticked', () => {
+  // Two subjects with no chapter list and the same exam: only the mistakes
+  // make one of them worth time.
+  const list: Subject[] = [
+    { id: 'astro', name: 'Astronomy', color: '#3f6b52', teacher: '', examDate: addDays(today, 14), createdAt: 1 },
+    { id: 'geo', name: 'Geology', color: '#6a7f3f', teacher: '', examDate: addDays(today, 14), createdAt: 2 },
+  ]
+  const health = healthFor(list, [], today, [{ subjectId: 'astro', cards: 2 }])
+  expect(health[0]!.subject.id).toBe('astro')
+  expect(health[0]!.score).toBeGreaterThan(health[1]!.score)
+
+  const plan = buildRevisionPlan({
+    subjects: list,
+    regular: [],
+    health,
+    from: addDays(today, 1),
+    hoursPerDay: 2,
+    includeWeekends: true,
+  })
+  const minutes = (id: string) =>
+    plan.entries
+      .filter((entry) => entry.kind === 'study' && entry.subjectId === id)
+      .reduce((total, entry) => total + (entry.endMin - entry.startMin), 0)
+  expect(minutes('astro')).toBeGreaterThan(0)
+  expect(minutes('geo')).toBe(0)
 })

@@ -34,6 +34,7 @@ const rowsWith = (
     pacePerWeek: null,
     overdue: 0,
     openTasks: 0,
+    mistakes: 0,
     score: 1,
     status: 'steady' as const,
   }))

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useEffect, useState } from 'react'
 import { unitsFor } from '../shared/curriculum'
 import type { Task } from '../shared/types'
 import type { Tab } from './Shell'
@@ -19,6 +19,7 @@ import DayCheckin from './DayCheckin'
 import SessionTimer from './SessionTimer'
 import { weekReview } from './weekReview'
 import { useWorkspace } from './workspace'
+import type { RevisionSheetRow } from './revisionSheet.types'
 
 function taskInput(task: Task, done: boolean) {
   return {
@@ -89,6 +90,28 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
     .filter((row) => row.total > 0)
     .sort((a, b) => a.subject.examDate.localeCompare(b.subject.examDate))
     .slice(0, 3)
+
+  const [revisionSheetData, setRevisionSheetData] = useState<{
+    rows: RevisionSheetRow[]
+    today: string
+  }>({ rows: [], today })
+  useEffect(() => {
+    let active = true
+    fetch('/api/revision-sheet')
+      .then((r) => r.json())
+      .then((body) => {
+        if (!active) return
+        const rows = (body?.rows ?? []) as RevisionSheetRow[]
+        if (rows.length)
+          setRevisionSheetData({ rows, today: body?.today ?? today })
+      })
+      .catch(() => {
+        // Leave rows empty when the endpoint is unavailable.
+      })
+    return () => {
+      active = false
+    }
+  }, [today])
 
   return (
     <div className="stack">
@@ -413,6 +436,48 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
           </>
         )}
       </section>
+
+      {revisionSheetData.rows.length ? (
+        <section className="card">
+          <div className="card-head">
+            <h3>Revision sheet</h3>
+            <span className="count">{revisionSheetData.rows.length} subject{revisionSheetData.rows.length === 1 ? '' : 's'}</span>
+          </div>
+          <p className="muted">
+            Sorted by urgency: the most behind first, then exam proximity.
+          </p>
+          <ul className="revision-rows">
+            {revisionSheetData.rows.map((row) => (
+              <li key={row.subjectId} className="revision-row">
+                <span className="subject-dot" style={{ background: row.subjectName ? (data.subjects.find((s) => s.id === row.subjectId)?.color ?? '#5f6d5f') : '#5f6d5f' }} />
+                <div className="revision-main">
+                  <div className="revision-head">
+                    <strong>{row.subjectName}</strong>
+                    <span className={`status-chip is-${row.status}`}>{row.status}</span>
+                  </div>
+                  <span className="muted">
+                    {row.chaptersLeft === 0
+                      ? row.chaptersTotal === 0
+                        ? 'No chapters set'
+                        : `All ${row.chaptersTotal} chapters ticked`
+                      : `${row.chaptersLeft} of ${row.chaptersTotal} chapter${row.chaptersTotal === 1 ? '' : 's'} left`}
+                    {' · '}
+                    {row.examDate === '—'
+                      ? 'no exam set'
+                      : `exam ${fmtDate(row.examDate)}`}
+                    {row.overdueTasks > 0 ? ` · ${row.overdueTasks} overdue task${row.overdueTasks === 1 ? '' : 's'}` : ''}
+                    {row.mistakes > 0 ? ` · ${row.mistakes} card${row.mistakes === 1 ? '' : 's'} to retry` : ''}
+                  </span>
+                </div>
+                <span className="revision-bar">
+                  <span style={{ width: `${Math.min(100, Math.round(((row.chaptersTotal - row.chaptersLeft) / Math.max(1, row.chaptersTotal)) * 100))}%`, background: row.status === 'behind' ? '#b25b3a' : row.status === 'watch' ? '#c98a2b' : '#3f6b52' }} />
+                </span>
+                <span className="revision-hours">{row.revisionHoursPerWeek > 0 ? `${row.revisionHoursPerWeek}h/wk` : '—'}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {examRows.length ? (
         <section className="card">

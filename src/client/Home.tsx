@@ -12,6 +12,7 @@ import {
   dayIndexOf,
 } from './dates'
 import DayCheckin from './DayCheckin'
+import SessionTimer from './SessionTimer'
 import { useWorkspace } from './workspace'
 
 function taskInput(task: Task, done: boolean) {
@@ -176,6 +177,8 @@ export default function Home({ onNavigate }: { onNavigate: (tab: Tab) => void })
       ) : null}
 
       <DayCheckin />
+
+      <SessionTimer />
 
       <div className="stats">
         <div className="stat">

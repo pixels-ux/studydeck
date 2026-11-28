@@ -2851,6 +2851,128 @@ a.btn {
   margin-bottom: 2px;
 }
 
+/* The timer that follows tonight's plan on Today. */
+
+.session-card .card-head {
+  margin-bottom: 12px;
+}
+
+.session-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
+}
+
+.session-now {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+}
+
+.session-now .eyebrow {
+  margin: 0;
+}
+
+.session-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 550;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-badge {
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--green-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.session-clock {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(2.6rem, 6vw, 3.4rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-progress {
+  width: 100%;
+  height: 6px;
+  margin: 4px 0 6px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.session-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s linear;
+}
+
+.session-blocks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  max-height: 250px;
+  overflow: auto;
+}
+
+.session-block {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-block:hover {
+  background: var(--surface-soft);
+}
+
+.session-block.active {
+  border-color: var(--line-strong);
+  background: var(--surface-tint);
+}
+
+.session-block-time {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-block-title {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .session-body {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .topic-row,
   .homework-row {

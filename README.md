@@ -159,7 +159,13 @@ new topics in one day, up to 20 minutes. If homework does not fit the window it
 is reported instead of being squeezed in.
 
 **Save and build tonight's plan** stores the check-in and replaces only today's
-blocks in the timetable; other days are untouched. With an AI key, **Ask AI
+blocks in the timetable; other days are untouched.
+
+Once the plan is saved, **Tonight's session** on Today runs it without opening
+anything else: the next study block is already chosen, with pause, resume, +5
+minutes, reset and next block. The clock lives in the browser, so switching to
+Review during a break and coming back does not lose it; a countdown that ran out
+while the page was closed reads as finished instead of restarting by itself. With an AI key, **Ask AI
 about today** adds a short brief: what to start with, what deserves ten minutes
 of review, one honest note about the backlog, and two questions to check your own
 understanding. The check-in and brief are included in the workspace reset.

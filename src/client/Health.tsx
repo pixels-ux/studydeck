@@ -57,6 +57,9 @@ export default function Health({
     (task) => !task.done && task.dueDate && task.dueDate < today,
   )
   const looseOverdue = overdueOpen.filter((task) => !task.subjectId).length
+  const looseMistakes = data.mistakes
+    .filter((row) => !row.subjectId)
+    .reduce((sum, row) => sum + row.cards, 0)
   const untracked = rows.filter((row) => !row.chaptersTotal)
   const nextExam = data.subjects
     .filter((subject) => subject.examDate && subject.examDate >= today)
@@ -239,6 +242,14 @@ export default function Health({
             )
           })}
         </ul>
+        {looseMistakes ? (
+          <p className="fineprint">
+            {looseMistakes} missed card{looseMistakes === 1 ? '' : 's'} without a
+            subject {looseMistakes === 1 ? 'is' : 'are'} counted in Review but
+            cannot lift a subject. Give the deck a subject in Notes to have it
+            count here.
+          </p>
+        ) : null}
         {looseOverdue ? (
           <p className="fineprint">
             {looseOverdue} overdue task{looseOverdue === 1 ? '' : 's'} without a
